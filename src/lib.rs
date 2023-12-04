@@ -188,10 +188,10 @@ pub fn whitespace1(span: Span) -> IResult<Span, Option<DocComment>> {
             Ok((span, whitespace)) => {
                 parsed = (span, whitespace);
                 match whitespace {
-                   Whitespace::DocComment(comment) => doc = Some(DocComment(comment)),
-                   Whitespace::CComment(_) => doc = None,
-                   Whitespace::CppComment(_) => doc = None,
-                   Whitespace::Whitespace => {},
+                    Whitespace::DocComment(comment) => doc = Some(DocComment(comment)),
+                    Whitespace::CComment(_) => doc = None,
+                    Whitespace::CppComment(_) => doc = None,
+                    Whitespace::Whitespace => {}
                 }
             }
             Err(_) => return Ok((parsed.0, doc)),
@@ -329,6 +329,39 @@ mod tests {
         assert_eq!(
             remove_loc(parse_whitespace("  \n//test   \nxyz".into())),
             Ok(("//test   \nxyz".into(), Whitespace::Whitespace))
+        );
+    }
+
+    #[test]
+    fn test_parse_whitespace1() {
+        assert!(whitespace1("a".into()).is_err());
+        assert!(whitespace1("".into()).is_err());
+
+        assert_eq!(
+            remove_loc(whitespace1("//test\n123".into())),
+            Ok(("123".into(), None))
+        );
+        assert_eq!(
+            remove_loc(whitespace1("//test\n/*cpp */  \t  \t\r\n123".into())),
+            Ok(("123".into(), None))
+        );
+
+        // doc comments are extracted
+        assert_eq!(
+            remove_loc(whitespace1("//test\n/** Comment! */123".into())),
+            Ok(("123".into(), Some(DocComment(" Comment! "))))
+        );
+        assert_eq!(
+            remove_loc(whitespace1("//test\n/** Comment! */\n\n  \n\n123".into())),
+            Ok(("123".into(), Some(DocComment(" Comment! "))))
+        );
+        assert_eq!(
+            remove_loc(whitespace1("/** Comment! *///separated\n123".into())),
+            Ok(("123".into(), None))
+        );
+        assert_eq!(
+            remove_loc(whitespace1("/** Comment! *//*separated*/123".into())),
+            Ok(("123".into(), None))
         );
     }
 }

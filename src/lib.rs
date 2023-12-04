@@ -3,6 +3,7 @@ use nom::{
     bytes::complete::{is_not, tag, take_until},
     character::complete::one_of,
     combinator::{map, map_res, recognize, value},
+    error::{Error as NomError, ErrorKind},
     multi::many1,
     sequence::{pair, preceded, tuple},
     IResult,
@@ -169,14 +170,17 @@ pub fn parse_whitespace(span: Span) -> IResult<Span, Whitespace<'_>> {
     value(Whitespace::Whitespace, many1(one_of(" \t\r\n")))(span)
 }
 
-/// Parses at least one whitespace
-/// If the last comment whitespace is a doccomment, then
-/// It returns that doc comment.
-///
-pub fn whitespace1(span: Span) -> IResult<Span, Option<DocComment>> {
+/*
+ * Parses 0 or more whitespaces.
+ * It can NEVER fail.
+ */
+pub fn whitespace0(span: Span) -> IResult<Span, Option<DocComment>> {
     let mut doc: Option<DocComment> = None;
 
-    let mut parsed = parse_whitespace(span)?;
+    let mut parsed = match parse_whitespace(span) {
+        Err(_) => return Ok((span, None)),
+        Ok(value) => value,
+    };
 
     if let Whitespace::DocComment(comment) = parsed.1 {
         doc = Some(DocComment(comment))
@@ -197,6 +201,25 @@ pub fn whitespace1(span: Span) -> IResult<Span, Option<DocComment>> {
             Err(_) => return Ok((parsed.0, doc)),
         }
     }
+}
+
+/// Parses at least one whitespace
+/// If the last comment whitespace is a doccomment, then
+/// It returns that doc comment.
+///
+pub fn whitespace1(span: Span) -> IResult<Span, Option<DocComment>> {
+    let parsed = whitespace0(span)?;
+
+    if span == parsed.0 {
+        // TODO: how do I make a proper error without
+        //       using internal errors?
+        return Err(nom::Err::Error(NomError {
+            input: span,
+            code: ErrorKind::Space,
+        }));
+    }
+
+    Ok(parsed)
 }
 
 // TODO:
@@ -361,6 +384,26 @@ mod tests {
         );
         assert_eq!(
             remove_loc(whitespace1("/** Comment! *//*separated*/123".into())),
+            Ok(("123".into(), None))
+        );
+    }
+    
+    #[test]
+    fn test_parse_whitespace0() {
+        assert_eq!(
+            remove_loc(whitespace0("a".into())),
+            Ok(("a".into(), None))
+        );
+        assert_eq!(
+            remove_loc(whitespace0("".into())),
+            Ok(("".into(), None))
+        );
+        assert_eq!(
+            remove_loc(whitespace0("//test\n/** Comment! */123".into())),
+            Ok(("123".into(), Some(DocComment(" Comment! "))))
+        );
+        assert_eq!(
+            remove_loc(whitespace0("/** Comment! *//*separated*/123".into())),
             Ok(("123".into(), None))
         );
     }

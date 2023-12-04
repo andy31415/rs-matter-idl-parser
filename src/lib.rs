@@ -1,7 +1,7 @@
 use nom::{
     branch::alt,
-    bytes::complete::{is_not, tag, take_until, take_while, take_while1},
-    character::complete::{one_of, hex_digit1},
+    bytes::complete::{is_not, tag, take_until, take_while1},
+    character::complete::{hex_digit1, one_of},
     combinator::{map, map_res, recognize},
     error::{Error as NomError, ErrorKind},
     multi::{many0, many1},
@@ -75,9 +75,7 @@ pub fn parse_api_maturity(span: Span) -> IResult<Span, ApiMaturity> {
 pub fn parse_hex_integer(span: Span) -> IResult<Span, u32> {
     preceded(
         alt((tag("0x"), tag("0X"))),
-        map_res(recognize(hex_digit1),
-            |r: Span| u32::from_str_radix(&r, 16),
-        ),
+        map_res(recognize(hex_digit1), |r: Span| u32::from_str_radix(&r, 16)),
     )(span)
 }
 

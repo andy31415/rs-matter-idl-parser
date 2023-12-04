@@ -1,4 +1,12 @@
-use nom::{branch::alt, bytes::complete::tag, combinator::map, IResult};
+use nom::{
+    branch::alt,
+    bytes::complete::tag,
+    character::complete::one_of,
+    combinator::{map, map_res, recognize},
+    multi::many1,
+    sequence::preceded,
+    IResult,
+};
 use nom_locate::LocatedSpan;
 
 // easier to type and not move str around
@@ -48,6 +56,20 @@ pub fn parse_api_maturity(span: Span) -> IResult<Span, ApiMaturity> {
     specified
 }
 
+// positive_integer: POSITIVE_INTEGER | HEX_INTEGER
+// POSITIVE_INTEGER: /\d+/
+// HEX_INTEGER: /0x[A-Fa-f0-9]+/
+
+pub fn parse_hex_integer(span: Span) -> IResult<Span, u32> {
+    preceded(
+        alt((tag("0x"), tag("0X"))),
+        map_res(
+            recognize(many1(one_of("0123456789abcdefABCDEF"))),
+            |r: Span| u32::from_str_radix(&r, 16),
+        ),
+    )(span)
+}
+
 // TODO:
 // constant_entry: [maturity] id "=" positive_integer ";"
 
@@ -80,6 +102,22 @@ mod tests {
         assert_eq!(
             remove_loc(parse_api_maturity("deprecated foobar".into())),
             Ok((" foobar".into(), ApiMaturity::DEPRECATED))
+        );
+    }
+
+    #[test]
+    fn test_parse_hex_integer() {
+        assert!(parse_hex_integer("123".into()).is_err());
+        assert!(parse_hex_integer("0xzzz".into()).is_err());
+        assert!(parse_hex_integer("0x".into()).is_err());
+
+        assert_eq!(
+            remove_loc(parse_hex_integer("0x12 abc".into())),
+            Ok((" abc".into(), 0x12))
+        );
+        assert_eq!(
+            remove_loc(parse_hex_integer("0XABC XYZ".into())),
+            Ok((" XYZ".into(), 0xABC))
         );
     }
 }

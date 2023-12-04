@@ -73,6 +73,8 @@ pub fn parse_decimal_integer(span: Span) -> IResult<Span, u32> {
 }
 
 pub fn parse_positive_integer(span: Span) -> IResult<Span, u32> {
+    // NOTE: orer is important so that
+    // 0x123 is a hex not 0 followed by "x123"
     alt((parse_hex_integer, parse_decimal_integer))(span)
 }
 
@@ -113,6 +115,7 @@ mod tests {
 
     #[test]
     fn test_parse_hex_integer() {
+        assert!(parse_hex_integer("".into()).is_err());
         assert!(parse_hex_integer("123".into()).is_err());
         assert!(parse_hex_integer("0xzzz".into()).is_err());
         assert!(parse_hex_integer("0x".into()).is_err());
@@ -124,6 +127,48 @@ mod tests {
         assert_eq!(
             remove_loc(parse_hex_integer("0XABC XYZ".into())),
             Ok((" XYZ".into(), 0xABC))
+        );
+    }
+
+    #[test]
+    fn test_parse_decimal() {
+        assert!(parse_decimal_integer("a".into()).is_err());
+        assert!(parse_decimal_integer("".into()).is_err());
+
+        assert_eq!(
+            remove_loc(parse_decimal_integer("123".into())),
+            Ok(("".into(), 123))
+        );
+        assert_eq!(
+            remove_loc(parse_decimal_integer("1 2 3".into())),
+            Ok((" 2 3".into(), 1))
+        );
+        assert_eq!(
+            remove_loc(parse_decimal_integer("0x123".into())),
+            Ok(("x123".into(), 0))
+        );
+    }
+
+    #[test]
+    fn test_parse_positive_integer() {
+        assert!(parse_positive_integer("a".into()).is_err());
+        assert!(parse_positive_integer("".into()).is_err());
+
+        assert_eq!(
+            remove_loc(parse_positive_integer("123".into())),
+            Ok(("".into(), 123))
+        );
+        assert_eq!(
+            remove_loc(parse_positive_integer("1 2 3".into())),
+            Ok((" 2 3".into(), 1))
+        );
+        assert_eq!(
+            remove_loc(parse_positive_integer("0x123".into())),
+            Ok(("".into(), 0x123))
+        );
+        assert_eq!(
+            remove_loc(parse_positive_integer("12ab".into())),
+            Ok(("ab".into(), 12))
         );
     }
 }

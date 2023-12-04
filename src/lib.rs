@@ -1,6 +1,6 @@
 use nom::{
     branch::alt,
-    bytes::complete::{is_not, tag, take_until, take_while1},
+    bytes::complete::{is_not, tag, take_until, take_while1, is_a, take_while},
     character::complete::{hex_digit1, one_of},
     combinator::{map, map_res, recognize},
     error::{Error as NomError, ErrorKind},
@@ -258,12 +258,12 @@ pub fn whitespace1(span: Span) -> IResult<Span, Option<DocComment>> {
 /// Parses a name id, of the form /[a-zA-Z_][a-zA-Z0-9_]*/
 ///
 pub fn parse_id(span: Span) -> IResult<Span, &str> {
+    let valid_first = |c: char| c.is_ascii_alphabetic() || c == '_';
+    let valid_second = |c: char| c.is_ascii_alphanumeric() || c == '_';
     map(
         recognize(tuple((
-            one_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_"),
-            many0(one_of(
-                "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_",
-            )),
+            take_while1(valid_first),
+            take_while(valid_second),
         ))),
         |data: Span| *data.fragment(),
     )(span)

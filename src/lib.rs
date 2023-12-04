@@ -46,7 +46,6 @@ mod tests {
             parse_api_maturity("123".into()),
             Ok(("123".into(), ApiMaturity::STABLE))
         );
-
         assert_eq!(
             remove_loc(parse_api_maturity("stable abc".into())),
             Ok((" abc".into(), ApiMaturity::STABLE))
@@ -54,6 +53,14 @@ mod tests {
         assert_eq!(
             remove_loc(parse_api_maturity("provisional abc".into())),
             Ok((" abc".into(), ApiMaturity::PROVISIONAL))
+        );
+        assert_eq!(
+            remove_loc(parse_api_maturity("internal xyz".into())),
+            Ok((" xyz".into(), ApiMaturity::INTERNAL))
+        );
+        assert_eq!(
+            remove_loc(parse_api_maturity("deprecated foobar".into())),
+            Ok((" foobar".into(), ApiMaturity::DEPRECATED))
         );
     }
 }

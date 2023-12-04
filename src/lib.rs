@@ -1,8 +1,8 @@
 use nom::{
     branch::alt,
-    bytes::complete::{is_not, tag, take_until},
+    bytes::complete::{is_not, tag, take_until, take_while1},
     character::complete::one_of,
-    combinator::{map, map_res, recognize, value},
+    combinator::{map, map_res, recognize},
     error::{Error as NomError, ErrorKind},
     multi::many1,
     sequence::{pair, preceded, tuple},
@@ -136,7 +136,7 @@ pub enum Whitespace<'a> {
     DocComment(&'a str), // /** ... */
     CppComment(&'a str), // /* ... */ (and NOT a doc comment)
     CComment(&'a str),   // // ....
-    Whitespace,          // general newline/space/tab
+    Whitespace(&'a str), // general newline/space/tab
 }
 
 /// Parses whitespace (space/tab/newline and comments).
@@ -166,8 +166,12 @@ pub fn parse_whitespace(span: Span) -> IResult<Span, Whitespace<'_>> {
         return result;
     }
 
+    let is_space = |c: char| -> bool { c == ' ' || c == '\r' || c == '\n' || c == '\t' };
+
     // Finally just consume the whitespace
-    value(Whitespace::Whitespace, many1(one_of(" \t\r\n")))(span)
+    map::<Span, _, _, _, _, _>(take_while1(is_space), |comment| {
+        Whitespace::Whitespace(&comment)
+    })(span)
 }
 
 /*
@@ -195,7 +199,7 @@ pub fn whitespace0(span: Span) -> IResult<Span, Option<DocComment>> {
                     Whitespace::DocComment(comment) => doc = Some(DocComment(comment)),
                     Whitespace::CComment(_) => doc = None,
                     Whitespace::CppComment(_) => doc = None,
-                    Whitespace::Whitespace => {}
+                    Whitespace::Whitespace(_) => {}
                 }
             }
             Err(_) => return Ok((parsed.0, doc)),
@@ -327,7 +331,7 @@ mod tests {
 
         assert_eq!(
             remove_loc(parse_whitespace("   abc".into())),
-            Ok(("abc".into(), Whitespace::Whitespace))
+            Ok(("abc".into(), Whitespace::Whitespace("   ")))
         );
         assert_eq!(
             remove_loc(parse_whitespace("/* cpp comment */rest of text".into())),
@@ -351,7 +355,7 @@ mod tests {
         );
         assert_eq!(
             remove_loc(parse_whitespace("  \n//test   \nxyz".into())),
-            Ok(("//test   \nxyz".into(), Whitespace::Whitespace))
+            Ok(("//test   \nxyz".into(), Whitespace::Whitespace("  \n")))
         );
     }
 

@@ -56,6 +56,21 @@ pub fn parse_api_maturity(span: Span) -> IResult<Span, ApiMaturity> {
     specified
 }
 
+/// Parses a hex-formated integer
+///
+/// Examples:
+///
+/// ```
+/// use rs_matter_idl_parser::parse_hex_integer;
+///
+/// let result = parse_hex_integer("0x12 abc".into()).expect("Valid");
+/// assert_eq!(result.0.fragment().to_string(), " abc");
+/// assert_eq!(result.1, 0x12);
+///
+/// let result = parse_hex_integer("0X12abctest".into()).expect("Valid");
+/// assert_eq!(result.0.fragment().to_string(), "test");
+/// assert_eq!(result.1, 0x12abc);
+/// ```
 pub fn parse_hex_integer(span: Span) -> IResult<Span, u32> {
     preceded(
         alt((tag("0x"), tag("0X"))),
@@ -66,12 +81,46 @@ pub fn parse_hex_integer(span: Span) -> IResult<Span, u32> {
     )(span)
 }
 
+/// Parses a decimal-formated integer
+///
+/// Examples:
+///
+/// ```
+/// use rs_matter_idl_parser::parse_decimal_integer;
+///
+/// let result = parse_decimal_integer("12 abc".into()).expect("Valid");
+/// assert_eq!(result.0.fragment().to_string(), " abc");
+/// assert_eq!(result.1, 12);
+///
+/// let result = parse_decimal_integer("12abctest".into()).expect("Valid");
+/// assert_eq!(result.0.fragment().to_string(), "abctest");
+/// assert_eq!(result.1, 12);
+/// ```
 pub fn parse_decimal_integer(span: Span) -> IResult<Span, u32> {
     map_res(recognize(many1(one_of("0123456789"))), |r: Span| {
         r.parse::<u32>()
     })(span)
 }
 
+/// Parses a positive integer (hex or decimal)
+///
+/// Examples:
+///
+/// ```
+/// use rs_matter_idl_parser::parse_positive_integer;
+///
+/// let result = parse_positive_integer("12 abc".into()).expect("Valid");
+/// assert_eq!(result.0.fragment().to_string(), " abc");
+/// assert_eq!(result.1, 12);
+///
+/// let result = parse_positive_integer("12abctest".into()).expect("Valid");
+/// assert_eq!(result.0.fragment().to_string(), "abctest");
+/// assert_eq!(result.1, 12);
+///
+/// let result = parse_positive_integer("0x12abctest".into()).expect("Valid");
+/// assert_eq!(result.0.fragment().to_string(), "test");
+/// assert_eq!(result.1, 0x12abc);
+/// ```
 pub fn parse_positive_integer(span: Span) -> IResult<Span, u32> {
     // NOTE: orer is important so that
     // 0x123 is a hex not 0 followed by "x123"

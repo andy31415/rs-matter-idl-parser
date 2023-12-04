@@ -1,10 +1,10 @@
 use nom::{
     branch::alt,
-    bytes::complete::{is_not, tag, take_until, take_while1},
+    bytes::complete::{is_not, tag, take_until, take_while, take_while1},
     character::complete::one_of,
     combinator::{map, map_res, recognize},
     error::{Error as NomError, ErrorKind},
-    multi::many1,
+    multi::{many0, many1},
     sequence::{pair, preceded, tuple},
     IResult,
 };
@@ -258,8 +258,53 @@ pub fn whitespace1(span: Span) -> IResult<Span, Option<DocComment>> {
     Ok(parsed)
 }
 
-// TODO:
-// constant_entry: [maturity] id "=" positive_integer ";"
+/// Parses a name id, of the form /[a-zA-Z_][a-zA-Z0-9_]*/
+///
+pub fn parse_id(span: Span) -> IResult<Span, &str> {
+    map(
+        recognize(tuple((
+            one_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_"),
+            many0(one_of(
+                "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_",
+            )),
+        ))),
+        |data: Span| *data.fragment(),
+    )(span)
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct ConstantEntry<'a> {
+    pub maturity: ApiMaturity,
+    pub id: &'a str,
+    pub code: u32,
+}
+
+impl<'a> ConstantEntry<'a> {
+    /// Parses a IDL representation of a constant entry
+    ///
+    /// Consumes any whitespace BEFORE the entry
+    pub fn parse(span: Span) -> IResult<Span, Self> {
+        // Format is `[maturity] id "=" positive_integer ";"`
+        /*
+        tuple((
+            whitespace0,
+            (
+              parse_api_maturity,
+              whitespace1,
+            )
+            todo!(),
+            whitespace0,
+            tag("="),
+            whitespace0,
+            parse_positive_integer,
+            whitespace0,
+            tag(";"),
+        ))
+        */
+
+        todo!()
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -435,6 +480,27 @@ mod tests {
         assert_eq!(
             remove_loc(whitespace0("/** Comment! *//*separated*/123".into())),
             Ok(("123".into(), None))
+        );
+    }
+
+    #[test]
+    fn test_parse_id() {
+        assert!(parse_id("  xyz".into()).is_err());
+        assert!(parse_id("/".into()).is_err());
+        assert!(parse_id("#test".into()).is_err());
+        assert!(parse_id("123abc".into()).is_err());
+
+        assert_eq!(
+            remove_loc(parse_id("abc123 other".into())),
+            Ok((" other".into(), "abc123"))
+        );
+        assert_eq!(
+            remove_loc(parse_id("this_is_a_test and more data".into())),
+            Ok((" and more data".into(), "this_is_a_test"))
+        );
+        assert_eq!(
+            remove_loc(parse_id("_Test 123".into())),
+            Ok((" 123".into(), "_Test"))
         );
     }
 }

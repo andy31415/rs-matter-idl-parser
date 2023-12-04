@@ -130,12 +130,22 @@ pub fn parse_positive_integer(span: Span) -> IResult<Span, u32> {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct DocComment<'a>(&'a str);
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Whitespace<'a> {
+    DocComment(&'a str), // /** ... */
+    CppComment(&'a str), // /* ... */ (and NOT a doc comment)
+    CComment(&'a str),   // // ....
+    Whitespace,          // general newline/space/tab
+}
+
 /// Parses whitespace (space/tab/newline and comments).
 ///
-/// If the comment is a doc-comment, it will return the doccomment content
-pub fn parse_whitespace(span: Span) -> IResult<Span, Option<DocComment<'_>>> {
+/// returns the content of the comment
+pub fn parse_whitespace(span: Span) -> IResult<Span, Whitespace<'_>> {
     // C-style comment, output thrown away
-    let result = value(None, pair(tag("//"), is_not("\n\r")))(span);
+    let result = map::<Span, _, _, _, _, _>(pair(tag("//"), is_not("\n\r")), |(_, comment)| {
+        Whitespace::CComment(comment.fragment())
+    })(span);
     if result.is_ok() {
         return result;
     }
@@ -145,9 +155,9 @@ pub fn parse_whitespace(span: Span) -> IResult<Span, Option<DocComment<'_>>> {
         tuple((tag::<&str, Span, _>("/*"), take_until("*/"), tag("*/"))),
         |(_, comment, _)| {
             if comment.starts_with("*") {
-                Some(DocComment(&comment[1..]))
+                Whitespace::DocComment(&comment.fragment()[1..])
             } else {
-                None
+                Whitespace::CppComment(comment.fragment())
             }
         },
     )(span);
@@ -156,7 +166,15 @@ pub fn parse_whitespace(span: Span) -> IResult<Span, Option<DocComment<'_>>> {
     }
 
     // Finally just consume the whitespace
-    value(None, many1(one_of(" \t\r\n")))(span)
+    value(Whitespace::Whitespace, many1(one_of(" \t\r\n")))(span)
+}
+
+/// Parses at least one whitespace
+/// If the last comment whitespace is a doccomment, then
+/// It returns that doc comment.
+///
+pub fn whitespace1(span: Span) -> IResult<Span, Option<DocComment>> {
+    todo!()
 }
 
 // TODO:
@@ -264,25 +282,31 @@ mod tests {
 
         assert_eq!(
             remove_loc(parse_whitespace("   abc".into())),
-            Ok(("abc".into(), None))
+            Ok(("abc".into(), Whitespace::Whitespace))
         );
         assert_eq!(
             remove_loc(parse_whitespace("/* cpp comment */rest of text".into())),
-            Ok(("rest of text".into(), None))
+            Ok((
+                "rest of text".into(),
+                Whitespace::CppComment(" cpp comment ")
+            ))
         );
         assert_eq!(
             remove_loc(parse_whitespace("/** Doc comment */rest of text".into())),
-            Ok(("rest of text".into(), Some(DocComment(" Doc comment "))))
+            Ok((
+                "rest of text".into(),
+                Whitespace::DocComment(" Doc comment ")
+            ))
         );
 
         // only one (first) whitespace is removed
         assert_eq!(
             remove_loc(parse_whitespace("//test   \nxyz".into())),
-            Ok(("\nxyz".into(), None))
+            Ok(("\nxyz".into(), Whitespace::CComment("test   ")))
         );
         assert_eq!(
             remove_loc(parse_whitespace("  \n//test   \nxyz".into())),
-            Ok(("//test   \nxyz".into(), None))
+            Ok(("//test   \nxyz".into(), Whitespace::Whitespace))
         );
     }
 }

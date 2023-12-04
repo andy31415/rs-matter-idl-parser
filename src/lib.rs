@@ -129,7 +129,7 @@ pub fn parse_positive_integer(span: Span) -> IResult<Span, u32> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct DocComment<'a>(&'a str);
+pub struct DocComment<'a>(pub &'a str);
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Whitespace<'a> {
@@ -211,6 +211,20 @@ pub fn whitespace0(span: Span) -> IResult<Span, Option<DocComment>> {
 /// If the last comment whitespace is a doccomment, then
 /// It returns that doc comment.
 ///
+/// Examples:
+///
+/// ```
+/// use rs_matter_idl_parser::{whitespace1, DocComment};
+///
+/// let result = whitespace1(" /*comment*/\n12 abc".into()).expect("Valid");
+/// assert_eq!(result.0.fragment().to_string(), "12 abc");
+/// assert_eq!(result.1, None);
+///
+/// let result = whitespace1(" /**doc comment*/\n abc".into()).expect("Valid");
+/// assert_eq!(result.0.fragment().to_string(), "abc");
+/// assert_eq!(result.1, Some(DocComment("doc comment")));
+///
+/// ```
 pub fn whitespace1(span: Span) -> IResult<Span, Option<DocComment>> {
     let parsed = whitespace0(span)?;
 

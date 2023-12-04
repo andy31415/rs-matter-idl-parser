@@ -174,10 +174,29 @@ pub fn parse_whitespace(span: Span) -> IResult<Span, Whitespace<'_>> {
     })(span)
 }
 
-/*
- * Parses 0 or more whitespaces.
- * It can NEVER fail.
- */
+/// Parses 0 or more whitespaces.
+/// It can NEVER fail.
+///
+/// If the last comment whitespace is a doc-comment, returns
+/// that doc-comment.
+///
+/// Examples:
+///
+/// ```
+/// use rs_matter_idl_parser::{whitespace0, DocComment};
+///
+/// let result = whitespace0(" /*comment*/\n12 abc".into()).expect("Valid");
+/// assert_eq!(result.0.fragment().to_string(), "12 abc");
+/// assert_eq!(result.1, None);
+///
+/// let result = whitespace0(" /**doc comment*/\n abc".into()).expect("Valid");
+/// assert_eq!(result.0.fragment().to_string(), "abc");
+/// assert_eq!(result.1, Some(DocComment("doc comment")));
+///
+/// let result = whitespace0("no whitespace".into()).expect("Valid");
+/// assert_eq!(result.0.fragment().to_string(), "no whitespace");
+/// assert_eq!(result.1, None);
+/// ```
 pub fn whitespace0(span: Span) -> IResult<Span, Option<DocComment>> {
     let mut doc: Option<DocComment> = None;
 
@@ -223,7 +242,6 @@ pub fn whitespace0(span: Span) -> IResult<Span, Option<DocComment>> {
 /// let result = whitespace1(" /**doc comment*/\n abc".into()).expect("Valid");
 /// assert_eq!(result.0.fragment().to_string(), "abc");
 /// assert_eq!(result.1, Some(DocComment("doc comment")));
-///
 /// ```
 pub fn whitespace1(span: Span) -> IResult<Span, Option<DocComment>> {
     let parsed = whitespace0(span)?;

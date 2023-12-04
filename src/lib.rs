@@ -12,8 +12,26 @@ pub enum ApiMaturity {
     DEPRECATED,
 }
 
+/// A parser that CANNOT fail
+///
+/// Note that it will consume no input if no maturity is specified
+/// in which case it returns 'STABLE'
+///
+/// Examples:
+///
+/// ```
+/// use rs_matter_idl_parser::{parse_api_maturity, ApiMaturity};
+///
+/// assert_eq!(
+///    parse_api_maturity("123".into()),
+///    Ok(("123".into(), ApiMaturity::STABLE))
+/// );
+///
+/// let result = parse_api_maturity("provisional 123".into()).expect("Valid");
+/// assert_eq!(result.0.fragment().to_string(), " 123");
+/// assert_eq!(result.1, ApiMaturity::PROVISIONAL);
+/// ```
 pub fn parse_api_maturity(span: Span) -> IResult<Span, ApiMaturity> {
-    // This actually cannot fail
     let specified: IResult<Span, ApiMaturity> = alt((
         map(tag("stable"), |_| ApiMaturity::STABLE),
         map(tag("provisional"), |_| ApiMaturity::PROVISIONAL),
@@ -21,6 +39,7 @@ pub fn parse_api_maturity(span: Span) -> IResult<Span, ApiMaturity> {
         map(tag("deprecated"), |_| ApiMaturity::DEPRECATED),
     ))(span);
 
+    // This actually cannot fail
     if specified.is_err() {
         // Do not consume anything, return stable if not specified
         return Ok((span, ApiMaturity::STABLE));

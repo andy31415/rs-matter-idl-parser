@@ -155,7 +155,7 @@ pub fn parse_whitespace(span: Span) -> IResult<Span, Whitespace<'_>> {
     let result = map(
         tuple((tag::<&str, Span, _>("/*"), take_until("*/"), tag("*/"))),
         |(_, comment, _)| {
-            if comment.starts_with("*") {
+            if comment.starts_with('*') {
                 Whitespace::DocComment(&comment.fragment()[1..])
             } else {
                 Whitespace::CppComment(comment.fragment())
@@ -387,17 +387,11 @@ mod tests {
             Ok(("123".into(), None))
         );
     }
-    
+
     #[test]
     fn test_parse_whitespace0() {
-        assert_eq!(
-            remove_loc(whitespace0("a".into())),
-            Ok(("a".into(), None))
-        );
-        assert_eq!(
-            remove_loc(whitespace0("".into())),
-            Ok(("".into(), None))
-        );
+        assert_eq!(remove_loc(whitespace0("a".into())), Ok(("a".into(), None)));
+        assert_eq!(remove_loc(whitespace0("".into())), Ok(("".into(), None)));
         assert_eq!(
             remove_loc(whitespace0("//test\n/** Comment! */123".into())),
             Ok(("123".into(), Some(DocComment(" Comment! "))))

@@ -56,10 +56,6 @@ pub fn parse_api_maturity(span: Span) -> IResult<Span, ApiMaturity> {
     specified
 }
 
-// positive_integer: POSITIVE_INTEGER | HEX_INTEGER
-// POSITIVE_INTEGER: /\d+/
-// HEX_INTEGER: /0x[A-Fa-f0-9]+/
-
 pub fn parse_hex_integer(span: Span) -> IResult<Span, u32> {
     preceded(
         alt((tag("0x"), tag("0X"))),
@@ -68,6 +64,16 @@ pub fn parse_hex_integer(span: Span) -> IResult<Span, u32> {
             |r: Span| u32::from_str_radix(&r, 16),
         ),
     )(span)
+}
+
+pub fn parse_decimal_integer(span: Span) -> IResult<Span, u32> {
+    map_res(recognize(many1(one_of("0123456789"))), |r: Span| {
+        r.parse::<u32>()
+    })(span)
+}
+
+pub fn parse_positive_integer(span: Span) -> IResult<Span, u32> {
+    alt((parse_hex_integer, parse_decimal_integer))(span)
 }
 
 // TODO:

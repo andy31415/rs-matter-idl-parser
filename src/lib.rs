@@ -170,5 +170,9 @@ mod tests {
             remove_loc(parse_positive_integer("12ab".into())),
             Ok(("ab".into(), 12))
         );
+        assert_eq!(
+            remove_loc(parse_positive_integer("0x12abcxyz".into())),
+            Ok(("xyz".into(), 0x12abc))
+        );
     }
 }

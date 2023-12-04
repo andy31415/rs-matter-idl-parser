@@ -32,23 +32,28 @@ pub fn parse_api_maturity(span: Span) -> IResult<Span, ApiMaturity> {
 // TODO:
 // constant_entry: [maturity] id "=" positive_integer ";"
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    
-    fn remove_loc<O>(src: IResult<Span, O>) -> IResult<Span, O> {
-        src.map(|(span, o)| {
-            ((*span.fragment()).into(), o)
-        })
-    }
 
+    fn remove_loc<O>(src: IResult<Span, O>) -> IResult<Span, O> {
+        src.map(|(span, o)| ((*span.fragment()).into(), o))
+    }
 
     #[test]
     fn test_parse_maturity() {
-        assert_eq!(parse_api_maturity("123".into()), Ok(("123".into(), ApiMaturity::STABLE)));
+        assert_eq!(
+            parse_api_maturity("123".into()),
+            Ok(("123".into(), ApiMaturity::STABLE))
+        );
 
-        assert_eq!(remove_loc(parse_api_maturity("stable abc".into())), Ok((" abc".into(), ApiMaturity::STABLE)));
-        assert_eq!(remove_loc(parse_api_maturity("provisional abc".into())), Ok((" abc".into(), ApiMaturity::PROVISIONAL)));
+        assert_eq!(
+            remove_loc(parse_api_maturity("stable abc".into())),
+            Ok((" abc".into(), ApiMaturity::STABLE))
+        );
+        assert_eq!(
+            remove_loc(parse_api_maturity("provisional abc".into())),
+            Ok((" abc".into(), ApiMaturity::PROVISIONAL))
+        );
     }
 }

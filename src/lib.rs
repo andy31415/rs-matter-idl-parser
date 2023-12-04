@@ -174,7 +174,29 @@ pub fn parse_whitespace(span: Span) -> IResult<Span, Whitespace<'_>> {
 /// It returns that doc comment.
 ///
 pub fn whitespace1(span: Span) -> IResult<Span, Option<DocComment>> {
-    todo!()
+    let mut doc: Option<DocComment> = None;
+
+    let mut parsed = parse_whitespace(span)?;
+
+    if let Whitespace::DocComment(comment) = parsed.1 {
+        doc = Some(DocComment(comment))
+    }
+
+    // now consume all other results if any
+    loop {
+        match parse_whitespace(parsed.0) {
+            Ok((span, whitespace)) => {
+                parsed = (span, whitespace);
+                match whitespace {
+                   Whitespace::DocComment(comment) => doc = Some(DocComment(comment)),
+                   Whitespace::CComment(_) => doc = None,
+                   Whitespace::CppComment(_) => doc = None,
+                   Whitespace::Whitespace => {},
+                }
+            }
+            Err(_) => return Ok((parsed.0, doc)),
+        }
+    }
 }
 
 // TODO:

@@ -1,10 +1,10 @@
 use nom::{
     branch::alt,
-    bytes::complete::tag,
+    bytes::complete::{is_not, tag, take_until},
     character::complete::one_of,
-    combinator::{map, map_res, recognize},
+    combinator::{map, map_res, recognize, value},
     multi::many1,
-    sequence::preceded,
+    sequence::{pair, preceded, tuple},
     IResult,
 };
 use nom_locate::LocatedSpan;
@@ -127,6 +127,38 @@ pub fn parse_positive_integer(span: Span) -> IResult<Span, u32> {
     alt((parse_hex_integer, parse_decimal_integer))(span)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DocComment<'a>(&'a str);
+
+/// Parses whitespace (space/tab/newline and comments).
+///
+/// If the comment is a doc-comment, it will return the doccomment content
+pub fn parse_whitespace(span: Span) -> IResult<Span, Option<DocComment<'_>>> {
+    // C-style comment, output thrown away
+    let result = value(None, pair(tag("//"), is_not("\n\r")))(span);
+    if result.is_ok() {
+        return result;
+    }
+
+    // C++-style comment, output thrown away
+    let result = map(
+        tuple((tag::<&str, Span, _>("/*"), take_until("*/"), tag("*/"))),
+        |(_, comment, _)| {
+            if comment.starts_with("*") {
+                Some(DocComment(&comment[1..]))
+            } else {
+                None
+            }
+        },
+    )(span);
+    if result.is_ok() {
+        return result;
+    }
+
+    // Finally just consume the whitespace
+    value(None, many1(one_of(" \t\r\n")))(span)
+}
+
 // TODO:
 // constant_entry: [maturity] id "=" positive_integer ";"
 
@@ -222,6 +254,35 @@ mod tests {
         assert_eq!(
             remove_loc(parse_positive_integer("0x12abcxyz".into())),
             Ok(("xyz".into(), 0x12abc))
+        );
+    }
+
+    #[test]
+    fn test_parse_whitespace() {
+        assert!(parse_whitespace("a".into()).is_err());
+        assert!(parse_whitespace("".into()).is_err());
+
+        assert_eq!(
+            remove_loc(parse_whitespace("   abc".into())),
+            Ok(("abc".into(), None))
+        );
+        assert_eq!(
+            remove_loc(parse_whitespace("/* cpp comment */rest of text".into())),
+            Ok(("rest of text".into(), None))
+        );
+        assert_eq!(
+            remove_loc(parse_whitespace("/** Doc comment */rest of text".into())),
+            Ok(("rest of text".into(), Some(DocComment(" Doc comment "))))
+        );
+
+        // only one (first) whitespace is removed
+        assert_eq!(
+            remove_loc(parse_whitespace("//test   \nxyz".into())),
+            Ok(("\nxyz".into(), None))
+        );
+        assert_eq!(
+            remove_loc(parse_whitespace("  \n//test   \nxyz".into())),
+            Ok(("//test   \nxyz".into(), None))
         );
     }
 }

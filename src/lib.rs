@@ -418,6 +418,27 @@ impl<'a> Bitmap<'a> {
     }
 }
 
+// TODO: structs
+//    - needs fields (generic: structs and events have these)
+//    - 
+//
+// struct: struct_qualities "struct"i id "{" (struct_field ";")* "}"
+// struct_qualities: struct_quality*
+// struct_quality: "fabric_scoped"i -> struct_fabric_scoped
+//
+// struct_field: [maturity] member_attribute* field
+//
+// member_attribute: "optional"i -> optional
+//                   "nullable"i -> nullable
+//                   "fabric_sensitive"i -> fabric_sensitive
+//
+// field: data_type id list_marker? "=" positive_integer
+// list_marker: "[" "]"
+// data_type: type ("<" positive_integer ">")?
+
+
+
+
 #[cfg(test)]
 mod tests {
     use super::*;

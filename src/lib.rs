@@ -571,7 +571,13 @@ mod tests {
         );
         assert_eq!(
             remove_loc(ConstantEntry::parse(
-                "\n\rinternal\n\rkTest\t  \n   =\n\r0xabc\n\n;".into()
+                "
+                internal
+                kTest\t
+                     =
+                      0xabc
+                  
+                       ;".into()
             )),
             Ok((
                 "".into(),

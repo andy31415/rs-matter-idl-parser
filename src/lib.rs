@@ -916,17 +916,21 @@ impl Attribute<'_> {
             attribute_access,
             whitespace0,
             StructField::parse,
+            whitespace0,
+            tag(";"),
         ))
-        .map(|(_, _, _, (read_acl, write_acl), _, field)| Attribute {
-            doc_comment,
-            maturity,
-            field,
-            read_acl,
-            write_acl,
-            is_read_only,
-            is_no_subscribe,
-            is_timed_write,
-        })
+        .map(
+            |(_, _, _, (read_acl, write_acl), _, field, _, _)| Attribute {
+                doc_comment,
+                maturity,
+                field,
+                read_acl,
+                write_acl,
+                is_read_only,
+                is_no_subscribe,
+                is_timed_write,
+            },
+        )
         .parse(span)
     }
 }
@@ -958,13 +962,89 @@ impl Cluster<'_> {
             .map(|(m, _)| m)
             .parse(span)?;
 
-        let mut cluster = Cluster {
+        let (span, mut cluster) = delimited(
+            tuple((
+                whitespace0,
+                opt(alt((tag_no_case("client"), tag_no_case("server")))),
+                whitespace0,
+                tag_no_case("cluster"),
+                whitespace0,
+            )),
+            tuple((
+                parse_id,
+                whitespace0,
+                tag("="),
+                whitespace0,
+                positive_integer,
+            )),
+            whitespace0,
+        )
+        .map(|(id, _, _, _, code)| Cluster {
             doc_comment,
             maturity,
+            id,
+            code,
             ..Default::default()
-        };
+        })
+        .parse(span)?;
 
-        // TODO: implement
+        let (mut span, _) = tag("{").parse(span)?;
+        loop {
+            if let Ok((rest, revision)) = delimited(
+                tuple((whitespace0, tag_no_case("revision"), whitespace1)),
+                positive_integer,
+                tuple((whitespace0, tag(";"))),
+            )
+            .parse(span)
+            {
+                eprintln!("REVISION: {:?}", revision);
+                cluster.revision = revision;
+                span = rest;
+                continue;
+            }
+            if let Ok((rest, b)) = Bitmap::parse(span) {
+                eprintln!("BITMAP: {:?}", b);
+                cluster.bitmaps.push(b);
+                span = rest;
+                continue;
+            }
+            if let Ok((rest, e)) = Enum::parse(span) {
+                eprintln!("ENUM: {:?}", e);
+                cluster.enums.push(e);
+                span = rest;
+                continue;
+            }
+            if let Ok((rest, s)) = Struct::parse(span) {
+                eprintln!("STRUCT: {:?}", s);
+                cluster.structs.push(s);
+                span = rest;
+                continue;
+            }
+            if let Ok((rest, a)) = Attribute::parse(span) {
+                eprintln!("ATTR: {:?}", a);
+                cluster.attributes.push(a);
+                span = rest;
+                continue;
+            }
+            if let Ok((rest, c)) = Command::parse(span) {
+                eprintln!("CMD: {:?}", c);
+                cluster.commands.push(c);
+                span = rest;
+                continue;
+            }
+            if let Ok((rest, e)) = Event::parse(span) {
+                eprintln!("EVENT: {:?}", e);
+                cluster.events.push(e);
+                span = rest;
+                continue;
+            }
+            // no match found, give up
+            break;
+        }
+
+        let (span, _) = tuple((whitespace0, tag("}"))).parse(span)?;
+
+        // ?cluster_content: [maturity] (enum|bitmap|event|attribute|struct|request_struct|response_struct|command)
 
         Ok((span, cluster))
     }
@@ -1002,7 +1082,50 @@ mod tests {
         ".into()), Cluster {
             doc_comment: Some(" This is totally made up "),
             maturity: ApiMaturity::INTERNAL,
-
+            id: "MyTestCluster",
+            code: 0x123,
+            revision: 22,
+            enums: vec![
+                Enum { 
+                    doc_comment: None, 
+                    maturity: ApiMaturity::STABLE, 
+                    id: "ApplyUpdateActionEnum", 
+                    base_type: "enum8", 
+                    entries: vec![
+                        ConstantEntry { maturity: ApiMaturity::STABLE, id: "kProceed", code: 0 }, 
+                        ConstantEntry { maturity: ApiMaturity::STABLE, id: "kAwaitNextAction", code: 1 }, 
+                        ConstantEntry { maturity: ApiMaturity::STABLE, id: "kDiscontinue", code: 2 },
+                    ]
+               },
+            ], 
+            attributes: vec![Attribute { 
+                doc_comment: None, 
+                maturity: ApiMaturity::STABLE, 
+                field: StructField { 
+                    field: Field { data_type: DataType::list_of("attrib_id"), id: "attributeList", code: 65531 }, 
+                    maturity: ApiMaturity::STABLE, 
+                    is_optional: false, 
+                    is_nullable: false, 
+                    is_fabric_sensitive: false 
+                },
+                read_acl: AccessPrivilege::View, 
+                write_acl: AccessPrivilege::Operate,
+                is_read_only: true, 
+                is_no_subscribe: false, 
+                is_timed_write: false 
+            }], 
+            commands: vec![
+                Command { 
+                    doc_comment: None, 
+                    maturity: ApiMaturity::STABLE, 
+                    access: AccessPrivilege::Administer, 
+                    id: "CommissioningComplete", 
+                    input: None, 
+                    output: "CommissioningCompleteResponse", 
+                    code: 4, 
+                    is_timed: false, 
+                    is_fabric_scoped: true 
+            }],
             ..Default::default()
         });
     }

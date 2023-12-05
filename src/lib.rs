@@ -514,6 +514,27 @@ impl Field<'_> {
     }
 }
 
+/// Grabs a tag set which are whitespace-separated list of items
+///
+/// Returns a parser for IResult<_, HashSet<&str>>
+/// where the has set contains a items from the given tags.
+macro_rules! tags_set {
+    ($tag:expr) => {
+        separated_list0(
+            whitespace1,
+            tag_no_case($tag),
+        ).map(|items| HashSet::from_iter(items.iter().map(|s| *s.fragment())) as HashSet<&str>)
+    };
+    ($($tags:expr),+) => {
+        separated_list0(
+            whitespace1,
+            alt((
+                $(tag_no_case(($tags))),+
+            ))
+        ).map(|items| HashSet::from_iter(items.iter().map(|s| *s.fragment())) as HashSet<&str>)
+    };
+}
+
 /// Represents a field entry within a struct.
 ///
 /// Specifically this adds structure specific information
@@ -533,16 +554,8 @@ impl StructField<'_> {
             .map(|(_, m, _)| m)
             .parse(span)?;
 
-        let (span, attributes): (_, HashSet<&'_ str>) = separated_list0(
-            whitespace1,
-            alt((
-                tag_no_case("optional"),
-                tag_no_case("nullable"),
-                tag_no_case("fabric_sensitive"),
-            )),
-        )
-        .map(|attrs| HashSet::from_iter(attrs.iter().map(|s| *s.fragment())))
-        .parse(span)?;
+        let (span, attributes) =
+            tags_set!("optional", "nullable", "fabric_sensitive").parse(span)?;
 
         let is_optional = attributes.contains("optional");
         let is_nullable = attributes.contains("nullable");
@@ -616,10 +629,7 @@ impl Struct<'_> {
 
         let (span, _) = whitespace0.parse(span)?;
 
-        let (span, attributes): (_, HashSet<&'_ str>) =
-            separated_list0(whitespace1, tag_no_case("fabric_scoped"))
-                .map(|attrs| HashSet::from_iter(attrs.iter().map(|s| *s.fragment())))
-                .parse(span)?;
+        let (span, attributes) = tags_set!("fabric_scoped").parse(span)?;
 
         let is_fabric_scoped = attributes.contains("fabric_scoped");
 
@@ -699,12 +709,9 @@ impl Event<'_> {
         let (span, doc_comment) = whitespace0.parse(span)?;
         let doc_comment = doc_comment.map(|DocComment(s)| s);
 
-        let (span, attributes): (_, HashSet<&'_ str>) =
-            separated_list0(whitespace1, tag_no_case("fabric_sensitive"))
-                .map(|attrs| HashSet::from_iter(attrs.iter().map(|s| *s.fragment())))
-                .parse(span)?;
-
+        let (span, attributes) = tags_set!("fabric_sensitive").parse(span)?;
         let is_fabric_sensitive = attributes.contains("fabric_sensitive");
+
         tuple((
             whitespace0,
             event_priority,
@@ -749,6 +756,36 @@ impl Event<'_> {
     }
 }
 
+/// A command that can be executed on a cluster
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Command<'a> {
+    pub doc_comment: Option<&'a str>,
+    pub access: AccessPrivilege, // invoke access privilege
+    pub id: &'a str,
+    pub input: Option<&'a str>,
+    pub output: &'a str,
+    pub code: u32,
+    pub is_timed: bool,
+    pub is_fabric_scoped: bool,
+}
+
+impl Command<'_> {
+    pub fn parse(span: Span) -> IResult<Span, Command<'_>> {
+        todo!()
+    }
+}
+
+// command: command_qualities "command"i command_access? id "(" id? ")" ":" id "=" positive_integer ";"
+// command_qualities: command_quality*
+// command_quality: "timed"i -> timed_command
+//               | "fabric"i -> fabric_scoped_command
+// command_access: "access"i "(" ("invoke"i ":" access_privilege)? ")"
+
+// TODO (in order)
+//   - commands
+//   - attributes
+//   - cluster (it will be fully parseable after this)
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -760,6 +797,25 @@ mod tests {
     fn assert_parse_ok<R: PartialEq + std::fmt::Debug>(parsed: IResult<Span, R>, expected: R) {
         let actual = parsed.expect("Parse should have succeeded").1;
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_parse_command() {
+        assert_parse_ok(
+            Command::parse("
+            /** Test with many options. */
+            fabric timed command access(invoke: administer) GetSetupPIN(GetSetupPINRequest): GetSetupPINResponse = 0;
+            ".into()),
+            Command {
+                doc_comment: Some(" Test with many options. "),
+                access: AccessPrivilege::Administer,
+                id: "GetSetupPin",
+                input: Some("GetSetupPINRequest"),
+                output: "GetSetupPinResponse",
+                code: 0,
+                is_timed: true,
+                is_fabric_scoped: true,
+            });
     }
 
     #[test]

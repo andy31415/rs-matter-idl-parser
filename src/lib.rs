@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use miette::{Diagnostic, NamedSource, SourceSpan};
 use nom::{
     branch::alt,
     bytes::complete::{is_not, tag, tag_no_case, take_until, take_while, take_while1},
@@ -11,6 +12,7 @@ use nom::{
     IResult, Parser,
 };
 use nom_locate::LocatedSpan;
+use thiserror::Error;
 
 // easier to type and not move str around
 type Span<'a> = LocatedSpan<&'a str>;
@@ -1072,11 +1074,29 @@ pub struct Idl<'a> {
     pub clusters: Vec<Cluster<'a>>,
 }
 
+#[derive(Error, Debug, Diagnostic)]
+#[error("Failed to parse IDL.")]
+#[diagnostic(
+    code("matter::idl::parse::failure"),
+    help("Likely an invalid input format")
+)]
+pub struct IdlParsingError {
+    #[source_code]
+    pub src: NamedSource,
+
+    #[label("Cluster that failed to parse")]
+    pub cluster_pos: SourceSpan,
+
+    #[label("Parse error location")]
+    pub error_location: SourceSpan,
+}
+
 impl Idl<'_> {
     // TODO: better errors
-    pub fn parse(mut span: Span) -> Result<Idl, String> {
+    pub fn parse(input: Span) -> Result<Idl, IdlParsingError> {
         let mut idl = Idl::default();
 
+        let mut span = input;
         while let Ok((rest, cluster)) = Cluster::parse(span) {
             idl.clusters.push(cluster);
             span = rest;
@@ -1085,11 +1105,18 @@ impl Idl<'_> {
         let (span, _) = whitespace0.parse(span).expect("Whitespace0 cannot fail");
 
         if !span.is_empty() {
-            return Err(format!(
-                "Not the entire file was parsed {:?} {:?}",
-                Cluster::parse(span),
-                span
-            ));
+            // the span represents where cluster parsing failed
+            let err_pos = match Cluster::parse(span).expect_err("we know parsing failed") {
+                nom::Err::Error(pos) => input.len() - pos.input.len(),
+                nom::Err::Incomplete(_) => todo!(),
+                nom::Err::Failure(_) => todo!(),
+            };
+
+            return Err(IdlParsingError {
+                src: NamedSource::new("input idl", input.fragment().to_string()),
+                cluster_pos: (input.len() - span.len(), 1).into(),
+                error_location: (err_pos, 1).into(),
+            });
         }
 
         Ok(idl)

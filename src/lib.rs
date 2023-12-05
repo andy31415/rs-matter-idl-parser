@@ -13,7 +13,7 @@ use nom_locate::LocatedSpan;
 // easier to type and not move str around
 type Span<'a> = LocatedSpan<&'a str>;
 
-#[derive(Debug, PartialEq, Copy, Clone)]
+#[derive(Debug, PartialEq, Copy, Clone, Hash, PartialOrd, Eq, Ord)]
 pub enum ApiMaturity {
     STABLE,
     PROVISIONAL,
@@ -132,10 +132,10 @@ pub fn parse_positive_integer(span: Span) -> IResult<Span, u32> {
 ///
 /// Parsing whitespace yields doc-comments if the last comment in a whitespace
 /// sequence is a doc comment.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct DocComment<'a>(pub &'a str);
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Whitespace<'a> {
     DocComment(&'a str), // /** ... */
     CppComment(&'a str), // /* ... */ (and NOT a doc comment)
@@ -278,7 +278,7 @@ pub fn parse_id(span: Span) -> IResult<Span, &str> {
 /// A value that has a name (e.g. enumeration or bitmap constant).
 /// May also have an associated maturity that defaults to STABLE
 /// while parsing.
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ConstantEntry<'a> {
     pub maturity: ApiMaturity,
     pub id: &'a str,

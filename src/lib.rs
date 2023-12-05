@@ -15,6 +15,10 @@ use nom_locate::LocatedSpan;
 // easier to type and not move str around
 type Span<'a> = LocatedSpan<&'a str>;
 
+/// How mature/usable a member of an API is
+///
+/// Most things should be stable, however while spec is developed
+/// we expect PROVISIONAL to be set.
 #[derive(Debug, PartialEq, Copy, Clone, Hash, PartialOrd, Eq, Ord)]
 pub enum ApiMaturity {
     STABLE,
@@ -31,18 +35,18 @@ pub enum ApiMaturity {
 /// Examples:
 ///
 /// ```
-/// use rs_matter_idl_parser::{parse_api_maturity, ApiMaturity};
+/// use rs_matter_idl_parser::{api_maturity, ApiMaturity};
 ///
 /// assert_eq!(
-///    parse_api_maturity("123".into()),
+///    api_maturity("123".into()),
 ///    Ok(("123".into(), ApiMaturity::STABLE))
 /// );
 ///
-/// let result = parse_api_maturity("provisional 123".into()).expect("Valid");
+/// let result = api_maturity("provisional 123".into()).expect("Valid");
 /// assert_eq!(result.0.fragment().to_string(), " 123");
 /// assert_eq!(result.1, ApiMaturity::PROVISIONAL);
 /// ```
-pub fn parse_api_maturity(span: Span) -> IResult<Span, ApiMaturity> {
+pub fn api_maturity(span: Span) -> IResult<Span, ApiMaturity> {
     let specified: IResult<Span, ApiMaturity> = alt((
         map(tag_no_case("stable"), |_| ApiMaturity::STABLE),
         map(tag_no_case("provisional"), |_| ApiMaturity::PROVISIONAL),
@@ -64,17 +68,17 @@ pub fn parse_api_maturity(span: Span) -> IResult<Span, ApiMaturity> {
 /// Examples:
 ///
 /// ```
-/// use rs_matter_idl_parser::parse_hex_integer;
+/// use rs_matter_idl_parser::hex_integer;
 ///
-/// let result = parse_hex_integer("0x12 abc".into()).expect("Valid");
+/// let result = hex_integer("0x12 abc".into()).expect("Valid");
 /// assert_eq!(result.0.fragment().to_string(), " abc");
 /// assert_eq!(result.1, 0x12);
 ///
-/// let result = parse_hex_integer("0X12abctest".into()).expect("Valid");
+/// let result = hex_integer("0X12abctest".into()).expect("Valid");
 /// assert_eq!(result.0.fragment().to_string(), "test");
 /// assert_eq!(result.1, 0x12abc);
 /// ```
-pub fn parse_hex_integer(span: Span) -> IResult<Span, u32> {
+pub fn hex_integer(span: Span) -> IResult<Span, u32> {
     preceded(
         tag_no_case("0x"),
         map_res(recognize(hex_digit1), |r: Span| u32::from_str_radix(&r, 16)),
@@ -86,17 +90,17 @@ pub fn parse_hex_integer(span: Span) -> IResult<Span, u32> {
 /// Examples:
 ///
 /// ```
-/// use rs_matter_idl_parser::parse_decimal_integer;
+/// use rs_matter_idl_parser::decimal_integer;
 ///
-/// let result = parse_decimal_integer("12 abc".into()).expect("Valid");
+/// let result = decimal_integer("12 abc".into()).expect("Valid");
 /// assert_eq!(result.0.fragment().to_string(), " abc");
 /// assert_eq!(result.1, 12);
 ///
-/// let result = parse_decimal_integer("12abctest".into()).expect("Valid");
+/// let result = decimal_integer("12abctest".into()).expect("Valid");
 /// assert_eq!(result.0.fragment().to_string(), "abctest");
 /// assert_eq!(result.1, 12);
 /// ```
-pub fn parse_decimal_integer(span: Span) -> IResult<Span, u32> {
+pub fn decimal_integer(span: Span) -> IResult<Span, u32> {
     map_res(recognize(many1(one_of("0123456789"))), |r: Span| {
         r.parse::<u32>()
     })(span)
@@ -107,24 +111,24 @@ pub fn parse_decimal_integer(span: Span) -> IResult<Span, u32> {
 /// Examples:
 ///
 /// ```
-/// use rs_matter_idl_parser::parse_positive_integer;
+/// use rs_matter_idl_parser::positive_integer;
 ///
-/// let result = parse_positive_integer("12 abc".into()).expect("Valid");
+/// let result = positive_integer("12 abc".into()).expect("Valid");
 /// assert_eq!(result.0.fragment().to_string(), " abc");
 /// assert_eq!(result.1, 12);
 ///
-/// let result = parse_positive_integer("12abctest".into()).expect("Valid");
+/// let result = positive_integer("12abctest".into()).expect("Valid");
 /// assert_eq!(result.0.fragment().to_string(), "abctest");
 /// assert_eq!(result.1, 12);
 ///
-/// let result = parse_positive_integer("0x12abctest".into()).expect("Valid");
+/// let result = positive_integer("0x12abctest".into()).expect("Valid");
 /// assert_eq!(result.0.fragment().to_string(), "test");
 /// assert_eq!(result.1, 0x12abc);
 /// ```
-pub fn parse_positive_integer(span: Span) -> IResult<Span, u32> {
+pub fn positive_integer(span: Span) -> IResult<Span, u32> {
     // NOTE: orer is important so that
     // 0x123 is a hex not 0 followed by "x123"
-    alt((parse_hex_integer, parse_decimal_integer))(span)
+    alt((hex_integer, decimal_integer))(span)
 }
 
 /// Represents a comment (i.e. something between `/** ... */`)
@@ -137,6 +141,10 @@ pub fn parse_positive_integer(span: Span) -> IResult<Span, u32> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct DocComment<'a>(pub &'a str);
 
+/// Information returned while parsing whitespace.
+///
+/// Contains the underlying content of the whitespace, which is
+/// especially useful for documentation comments.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Whitespace<'a> {
     DocComment(&'a str), // /** ... */
@@ -148,7 +156,7 @@ pub enum Whitespace<'a> {
 /// Parses whitespace (space/tab/newline and comments).
 ///
 /// returns the content of the comment
-pub fn parse_whitespace(span: Span) -> IResult<Span, Whitespace<'_>> {
+pub fn whitespace_group(span: Span) -> IResult<Span, Whitespace<'_>> {
     // C-style comment, output thrown away
     let result = map::<Span, _, _, _, _, _>(pair(tag("//"), is_not("\n\r")), |(_, comment)| {
         Whitespace::CComment(comment.fragment())
@@ -206,7 +214,7 @@ pub fn parse_whitespace(span: Span) -> IResult<Span, Whitespace<'_>> {
 pub fn whitespace0(span: Span) -> IResult<Span, Option<DocComment>> {
     let mut doc: Option<DocComment> = None;
 
-    let mut parsed = match parse_whitespace(span) {
+    let mut parsed = match whitespace_group(span) {
         Err(_) => return Ok((span, None)),
         Ok(value) => value,
     };
@@ -217,7 +225,7 @@ pub fn whitespace0(span: Span) -> IResult<Span, Option<DocComment>> {
 
     // now consume all other results if any
     loop {
-        match parse_whitespace(parsed.0) {
+        match whitespace_group(parsed.0) {
             Ok((span, whitespace)) => {
                 parsed = (span, whitespace);
                 match whitespace {
@@ -311,13 +319,13 @@ impl<'a> ConstantEntry<'a> {
     pub fn parse(span: Span) -> IResult<Span, ConstantEntry<'_>> {
         tuple((
             whitespace0,
-            parse_api_maturity,
+            api_maturity,
             whitespace0,
             parse_id,
             whitespace0,
             tag("="),
             whitespace0,
-            parse_positive_integer,
+            positive_integer,
             whitespace0,
             tag(";"),
         ))
@@ -356,7 +364,7 @@ impl<'a> Enum<'a> {
     pub fn parse(span: Span) -> IResult<Span, Enum<'_>> {
         let (span, comment) = whitespace0(span)?;
         let doc_comment = comment.map(|DocComment(comment)| comment);
-        let (span, maturity) = tuple((parse_api_maturity, whitespace0))
+        let (span, maturity) = tuple((api_maturity, whitespace0))
             .map(|(m, _)| m)
             .parse(span)?;
 
@@ -396,7 +404,7 @@ impl<'a> Bitmap<'a> {
     pub fn parse(span: Span) -> IResult<Span, Bitmap<'_>> {
         let (span, comment) = whitespace0(span)?;
         let doc_comment = comment.map(|DocComment(comment)| comment);
-        let (span, maturity) = tuple((parse_api_maturity, whitespace0))
+        let (span, maturity) = tuple((api_maturity, whitespace0))
             .map(|(m, _)| m)
             .parse(span)?;
 
@@ -478,7 +486,7 @@ impl Field<'_> {
                 whitespace0,
                 tag("<"),
                 whitespace0,
-                parse_positive_integer,
+                positive_integer,
                 whitespace0,
                 tag(">"),
             ))
@@ -489,7 +497,7 @@ impl Field<'_> {
             opt(tuple((tag("["), whitespace0, tag("]"), whitespace0))),
             tag("="),
             whitespace0,
-            parse_positive_integer,
+            positive_integer,
         ))
         .map(
             |(_, type_name, max_length, _, id, _, list_marker, _, _, code)| Field {
@@ -521,7 +529,7 @@ pub struct StructField<'a> {
 
 impl StructField<'_> {
     pub fn parse(span: Span) -> IResult<Span, StructField<'_>> {
-        let (span, maturity) = tuple((whitespace0, parse_api_maturity, whitespace0))
+        let (span, maturity) = tuple((whitespace0, api_maturity, whitespace0))
             .map(|(_, m, _)| m)
             .parse(span)?;
 
@@ -556,7 +564,7 @@ impl StructField<'_> {
 }
 
 /// Defines the type of a structure.
-/// 
+///
 /// Response structures contain the underlying code used to send
 /// that structure as a reply.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -567,7 +575,7 @@ pub enum StructType {
 }
 
 /// A structure defined in IDL.
-/// 
+///
 /// Structures may be regular (as data types), request (used in command inputs)
 /// or responses (used as command outputs, have an id)
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -601,7 +609,7 @@ impl Struct<'_> {
 
         let (span, struct_type) = match struct_type {
             Some("request") => (span, StructType::Request),
-            Some("response") => tuple((tag("="), whitespace0, parse_positive_integer, whitespace0))
+            Some("response") => tuple((tag("="), whitespace0, positive_integer, whitespace0))
                 .map(|(_, _, id, _)| StructType::Response(id))
                 .parse(span)?,
             _ => (span, StructType::Regular),
@@ -1013,113 +1021,113 @@ mod tests {
     #[test]
     fn test_parse_maturity() {
         assert_eq!(
-            parse_api_maturity("123".into()),
+            api_maturity("123".into()),
             Ok(("123".into(), ApiMaturity::STABLE))
         );
         assert_eq!(
-            remove_loc(parse_api_maturity("stable abc".into())),
+            remove_loc(api_maturity("stable abc".into())),
             Ok((" abc".into(), ApiMaturity::STABLE))
         );
         assert_eq!(
-            remove_loc(parse_api_maturity("provisional abc".into())),
+            remove_loc(api_maturity("provisional abc".into())),
             Ok((" abc".into(), ApiMaturity::PROVISIONAL))
         );
         assert_eq!(
-            remove_loc(parse_api_maturity("internal xyz".into())),
+            remove_loc(api_maturity("internal xyz".into())),
             Ok((" xyz".into(), ApiMaturity::INTERNAL))
         );
         assert_eq!(
-            remove_loc(parse_api_maturity("deprecated foobar".into())),
+            remove_loc(api_maturity("deprecated foobar".into())),
             Ok((" foobar".into(), ApiMaturity::DEPRECATED))
         );
 
         assert_eq!(
-            remove_loc(parse_api_maturity("DepreCAteD CaseTest".into())),
+            remove_loc(api_maturity("DepreCAteD CaseTest".into())),
             Ok((" CaseTest".into(), ApiMaturity::DEPRECATED))
         );
     }
 
     #[test]
-    fn test_parse_hex_integer() {
-        assert!(parse_hex_integer("".into()).is_err());
-        assert!(parse_hex_integer("123".into()).is_err());
-        assert!(parse_hex_integer("0xzzz".into()).is_err());
-        assert!(parse_hex_integer("0x".into()).is_err());
+    fn test_hex_integer() {
+        assert!(hex_integer("".into()).is_err());
+        assert!(hex_integer("123".into()).is_err());
+        assert!(hex_integer("0xzzz".into()).is_err());
+        assert!(hex_integer("0x".into()).is_err());
 
         assert_eq!(
-            remove_loc(parse_hex_integer("0x12 abc".into())),
+            remove_loc(hex_integer("0x12 abc".into())),
             Ok((" abc".into(), 0x12))
         );
         assert_eq!(
-            remove_loc(parse_hex_integer("0XABC XYZ".into())),
+            remove_loc(hex_integer("0XABC XYZ".into())),
             Ok((" XYZ".into(), 0xABC))
         );
     }
 
     #[test]
     fn test_parse_decimal() {
-        assert!(parse_decimal_integer("a".into()).is_err());
-        assert!(parse_decimal_integer("".into()).is_err());
+        assert!(decimal_integer("a".into()).is_err());
+        assert!(decimal_integer("".into()).is_err());
 
         assert_eq!(
-            remove_loc(parse_decimal_integer("123".into())),
+            remove_loc(decimal_integer("123".into())),
             Ok(("".into(), 123))
         );
         assert_eq!(
-            remove_loc(parse_decimal_integer("1 2 3".into())),
+            remove_loc(decimal_integer("1 2 3".into())),
             Ok((" 2 3".into(), 1))
         );
         assert_eq!(
-            remove_loc(parse_decimal_integer("0x123".into())),
+            remove_loc(decimal_integer("0x123".into())),
             Ok(("x123".into(), 0))
         );
     }
 
     #[test]
-    fn test_parse_positive_integer() {
-        assert!(parse_positive_integer("a".into()).is_err());
-        assert!(parse_positive_integer("".into()).is_err());
+    fn test_positive_integer() {
+        assert!(positive_integer("a".into()).is_err());
+        assert!(positive_integer("".into()).is_err());
 
         assert_eq!(
-            remove_loc(parse_positive_integer("123".into())),
+            remove_loc(positive_integer("123".into())),
             Ok(("".into(), 123))
         );
         assert_eq!(
-            remove_loc(parse_positive_integer("1 2 3".into())),
+            remove_loc(positive_integer("1 2 3".into())),
             Ok((" 2 3".into(), 1))
         );
         assert_eq!(
-            remove_loc(parse_positive_integer("0x123".into())),
+            remove_loc(positive_integer("0x123".into())),
             Ok(("".into(), 0x123))
         );
         assert_eq!(
-            remove_loc(parse_positive_integer("12ab".into())),
+            remove_loc(positive_integer("12ab".into())),
             Ok(("ab".into(), 12))
         );
         assert_eq!(
-            remove_loc(parse_positive_integer("0x12abcxyz".into())),
+            remove_loc(positive_integer("0x12abcxyz".into())),
             Ok(("xyz".into(), 0x12abc))
         );
     }
 
     #[test]
-    fn test_parse_whitespace() {
-        assert!(parse_whitespace("a".into()).is_err());
-        assert!(parse_whitespace("".into()).is_err());
+    fn test_whitespace_group() {
+        assert!(whitespace_group("a".into()).is_err());
+        assert!(whitespace_group("".into()).is_err());
 
         assert_eq!(
-            remove_loc(parse_whitespace("   abc".into())),
+            remove_loc(whitespace_group("   abc".into())),
             Ok(("abc".into(), Whitespace::Whitespace("   ")))
         );
         assert_eq!(
-            remove_loc(parse_whitespace("/* cpp comment */rest of text".into())),
+            remove_loc(whitespace_group("/* cpp comment */rest of text".into())),
             Ok((
                 "rest of text".into(),
                 Whitespace::CppComment(" cpp comment ")
             ))
         );
         assert_eq!(
-            remove_loc(parse_whitespace("/** Doc comment */rest of text".into())),
+            remove_loc(whitespace_group("/** Doc comment */rest of text".into())),
             Ok((
                 "rest of text".into(),
                 Whitespace::DocComment(" Doc comment ")
@@ -1128,17 +1136,17 @@ mod tests {
 
         // only one (first) whitespace is removed
         assert_eq!(
-            remove_loc(parse_whitespace("//test   \nxyz".into())),
+            remove_loc(whitespace_group("//test   \nxyz".into())),
             Ok(("\nxyz".into(), Whitespace::CComment("test   ")))
         );
         assert_eq!(
-            remove_loc(parse_whitespace("  \n//test   \nxyz".into())),
+            remove_loc(whitespace_group("  \n//test   \nxyz".into())),
             Ok(("//test   \nxyz".into(), Whitespace::Whitespace("  \n")))
         );
     }
 
     #[test]
-    fn test_parse_whitespace1() {
+    fn test_whitespace_group1() {
         assert!(whitespace1("a".into()).is_err());
         assert!(whitespace1("".into()).is_err());
 
@@ -1171,7 +1179,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_whitespace0() {
+    fn test_whitespace_group0() {
         assert_eq!(remove_loc(whitespace0("a".into())), Ok(("a".into(), None)));
         assert_eq!(remove_loc(whitespace0("".into())), Ok(("".into(), None)));
         assert_eq!(

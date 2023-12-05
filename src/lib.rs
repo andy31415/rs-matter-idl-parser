@@ -1,6 +1,6 @@
 use nom::{
     branch::alt,
-    bytes::complete::{is_not, tag, take_until, take_while, take_while1},
+    bytes::complete::{is_not, tag, take_until, take_while, take_while1, tag_no_case},
     character::complete::{hex_digit1, one_of, space0},
     combinator::{map, map_res, recognize},
     error::{Error as NomError, ErrorKind},
@@ -42,10 +42,10 @@ pub enum ApiMaturity {
 /// ```
 pub fn parse_api_maturity(span: Span) -> IResult<Span, ApiMaturity> {
     let specified: IResult<Span, ApiMaturity> = alt((
-        map(tag("stable"), |_| ApiMaturity::STABLE),
-        map(tag("provisional"), |_| ApiMaturity::PROVISIONAL),
-        map(tag("internal"), |_| ApiMaturity::INTERNAL),
-        map(tag("deprecated"), |_| ApiMaturity::DEPRECATED),
+        map(tag_no_case("stable"), |_| ApiMaturity::STABLE),
+        map(tag_no_case("provisional"), |_| ApiMaturity::PROVISIONAL),
+        map(tag_no_case("internal"), |_| ApiMaturity::INTERNAL),
+        map(tag_no_case("deprecated"), |_| ApiMaturity::DEPRECATED),
     ))(span);
 
     // This actually cannot fail
@@ -74,7 +74,7 @@ pub fn parse_api_maturity(span: Span) -> IResult<Span, ApiMaturity> {
 /// ```
 pub fn parse_hex_integer(span: Span) -> IResult<Span, u32> {
     preceded(
-        alt((tag("0x"), tag("0X"))),
+        tag_no_case("0x"),
         map_res(recognize(hex_digit1), |r: Span| u32::from_str_radix(&r, 16)),
     )(span)
 }
@@ -323,6 +323,11 @@ mod tests {
         assert_eq!(
             remove_loc(parse_api_maturity("deprecated foobar".into())),
             Ok((" foobar".into(), ApiMaturity::DEPRECATED))
+        );
+
+        assert_eq!(
+            remove_loc(parse_api_maturity("DepreCAteD CaseTest".into())),
+            Ok((" CaseTest".into(), ApiMaturity::DEPRECATED))
         );
     }
 

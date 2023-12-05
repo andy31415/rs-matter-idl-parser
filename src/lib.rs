@@ -125,6 +125,13 @@ pub fn parse_positive_integer(span: Span) -> IResult<Span, u32> {
     alt((parse_hex_integer, parse_decimal_integer))(span)
 }
 
+/// Represents a comment (i.e. something between `/** ... */`)
+///
+/// Typically placed before some element (e.g. cluster or command) to serve
+/// as documentation for it.
+///
+/// Parsing whitespace yields doc-comments if the last comment in a whitespace
+/// sequence is a doc comment.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct DocComment<'a>(pub &'a str);
 
@@ -266,6 +273,11 @@ pub fn parse_id(span: Span) -> IResult<Span, &str> {
     )(span)
 }
 
+/// A named numeric value.
+///
+/// A value that has a name (e.g. enumeration or bitmap constant).
+/// May also have an associated maturity that defaults to STABLE
+/// while parsing.
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct ConstantEntry<'a> {
     pub maturity: ApiMaturity,
@@ -274,9 +286,26 @@ pub struct ConstantEntry<'a> {
 }
 
 impl<'a> ConstantEntry<'a> {
-    /// Parses a IDL representation of a constant entry
+    /// Parses a IDL representation of a constant entry.
     ///
-    /// Consumes any whitespace BEFORE the entry
+    /// Consumes any whitespace BEFORE the entry.
+    ///
+    /// Examples:
+    ///
+    /// ```
+    /// use rs_matter_idl_parser::{ConstantEntry, ApiMaturity};
+    ///
+    /// let parsed = ConstantEntry::parse("provisional kConstant = 0x123 ;".into()).expect("valid");
+    /// assert_eq!(parsed.0.fragment().to_string(), "");
+    /// assert_eq!(
+    ///         parsed.1,
+    ///         ConstantEntry {
+    ///             id: "kConstant",
+    ///             code: 0x123,
+    ///             maturity: ApiMaturity::PROVISIONAL
+    ///         }
+    /// );
+    /// ```
     pub fn parse(span: Span) -> IResult<Span, ConstantEntry<'_>> {
         tuple((
             space0,

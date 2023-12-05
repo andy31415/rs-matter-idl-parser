@@ -1,12 +1,12 @@
 use nom::{
     branch::alt,
-    bytes::complete::{is_not, tag, take_until, take_while1, is_a, take_while},
-    character::complete::{hex_digit1, one_of},
+    bytes::complete::{is_not, tag, take_until, take_while, take_while1},
+    character::complete::{hex_digit1, one_of, space0},
     combinator::{map, map_res, recognize},
     error::{Error as NomError, ErrorKind},
-    multi::{many0, many1},
+    multi::many1,
     sequence::{pair, preceded, tuple},
-    IResult,
+    IResult, Parser,
 };
 use nom_locate::LocatedSpan;
 
@@ -261,15 +261,12 @@ pub fn parse_id(span: Span) -> IResult<Span, &str> {
     let valid_first = |c: char| c.is_ascii_alphabetic() || c == '_';
     let valid_second = |c: char| c.is_ascii_alphanumeric() || c == '_';
     map(
-        recognize(tuple((
-            take_while1(valid_first),
-            take_while(valid_second),
-        ))),
+        recognize(tuple((take_while1(valid_first), take_while(valid_second)))),
         |data: Span| *data.fragment(),
     )(span)
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub struct ConstantEntry<'a> {
     pub maturity: ApiMaturity,
     pub id: &'a str,
@@ -280,26 +277,20 @@ impl<'a> ConstantEntry<'a> {
     /// Parses a IDL representation of a constant entry
     ///
     /// Consumes any whitespace BEFORE the entry
-    pub fn parse(span: Span) -> IResult<Span, Self> {
-        // Format is `[maturity] id "=" positive_integer ";"`
-        /*
+    pub fn parse(span: Span) -> IResult<Span, ConstantEntry<'_>> {
         tuple((
-            whitespace0,
-            (
-              parse_api_maturity,
-              whitespace1,
-            )
-            todo!(),
-            whitespace0,
+            parse_api_maturity,
+            space0,
+            parse_id,
+            space0,
             tag("="),
-            whitespace0,
+            space0,
             parse_positive_integer,
-            whitespace0,
+            space0,
             tag(";"),
         ))
-        */
-
-        todo!()
+        .map(|(maturity, _, id, _, _, _, code, _, _)| ConstantEntry { maturity, id, code })
+        .parse(span)
     }
 }
 
@@ -498,6 +489,38 @@ mod tests {
         assert_eq!(
             remove_loc(parse_id("_Test 123".into())),
             Ok((" 123".into(), "_Test"))
+        );
+    }
+
+    #[test]
+    fn test_parse_constant_entry() {
+        assert!(ConstantEntry::parse("abc".into()).is_err());
+        assert!(ConstantEntry::parse("a = 1".into()).is_err());
+        assert!(ConstantEntry::parse("a = ;".into()).is_err());
+        assert!(ConstantEntry::parse("provisional a = ;".into()).is_err());
+
+        assert_eq!(
+            remove_loc(ConstantEntry::parse("a=0;".into())),
+            Ok((
+                "".into(),
+                ConstantEntry {
+                    id: "a",
+                    code: 0,
+                    maturity: ApiMaturity::STABLE
+                }
+            ))
+        );
+        
+        assert_eq!(
+            remove_loc(ConstantEntry::parse("provisional xyz = 0x123 ;".into())),
+            Ok((
+                "".into(),
+                ConstantEntry {
+                    id: "xyz",
+                    code: 0x123,
+                    maturity: ApiMaturity::PROVISIONAL
+                }
+            ))
         );
     }
 }

@@ -696,6 +696,7 @@ pub fn event_priority(span: Span) -> IResult<Span, EventPriority> {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Event<'a> {
     pub doc_comment: Option<&'a str>,
+    pub maturity: ApiMaturity,
     pub priority: EventPriority,
     pub access: AccessPrivilege,
     pub id: &'a str,
@@ -708,6 +709,10 @@ impl Event<'_> {
     pub fn parse(span: Span) -> IResult<Span, Event<'_>> {
         let (span, doc_comment) = whitespace0.parse(span)?;
         let doc_comment = doc_comment.map(|DocComment(s)| s);
+
+        let (span, maturity) = tuple((api_maturity, whitespace0))
+            .map(|(m, _)| m)
+            .parse(span)?;
 
         let (span, attributes) = tags_set!("fabric_sensitive").parse(span)?;
         let is_fabric_sensitive = attributes.contains("fabric_sensitive");
@@ -744,6 +749,7 @@ impl Event<'_> {
         .map(
             |(_, priority, _, _, _, access, _, id, _, _, _, code, _, fields)| Event {
                 doc_comment,
+                maturity,
                 priority,
                 access,
                 id,
@@ -760,6 +766,7 @@ impl Event<'_> {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Command<'a> {
     pub doc_comment: Option<&'a str>,
+    pub maturity: ApiMaturity,
     pub access: AccessPrivilege, // invoke access privilege
     pub id: &'a str,
     pub input: Option<&'a str>,
@@ -773,6 +780,10 @@ impl Command<'_> {
     pub fn parse(span: Span) -> IResult<Span, Command<'_>> {
         let (span, doc_comment) = whitespace0.parse(span)?;
         let doc_comment = doc_comment.map(|DocComment(s)| s);
+
+        let (span, maturity) = tuple((api_maturity, whitespace0))
+            .map(|(m, _)| m)
+            .parse(span)?;
 
         let (span, qualities) = tags_set!("timed", "fabric").parse(span)?;
 
@@ -812,6 +823,7 @@ impl Command<'_> {
         .map(
             |(_, access, _, id, _, input, _, output, _, code, _)| Command {
                 doc_comment,
+                maturity,
                 access,
                 id,
                 input,
@@ -825,6 +837,34 @@ impl Command<'_> {
     }
 }
 
+/// An attribute within a cluster
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Attribute<'a> {
+    pub field: StructField<'a>,
+    pub read_acl: AccessPrivilege,
+    pub write_acl: AccessPrivilege,
+    pub is_read_only: bool,
+    pub is_no_subscribe: bool,
+    pub is_timed_write: bool,
+}
+
+impl Attribute<'_> {
+    pub fn parse(span: Span) -> IResult<Span, Attribute<'_>> {
+        todo!();
+    }
+}
+
+// attribute: attribute_qualities "attribute"i attribute_with_access ";"
+// attribute_qualities: attribute_quality* -> attribute_qualities
+// attribute_quality: "readonly"i -> attr_readonly
+//                  | "nosubscribe"i -> attr_nosubscribe
+//                  | "timedwrite"i -> attr_timed
+// attribute_with_access: attribute_access? struct_field
+//
+// ?attribute_access_type: "read"i  -> read_access
+//                      | "write"i -> write_access
+// attribute_access_entry: attribute_access_type ":" access_privilege
+// attribute_access: "access"i "(" (attribute_access_entry ("," attribute_access_entry)* )? ")"
 
 // TODO (in order)
 //   - attributes
@@ -844,14 +884,66 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_attribute() {
+        assert_parse_ok(
+            Attribute::parse("attribute int16u identifyTime = 123;".into()),
+            Attribute {
+                field: StructField {
+                    field: Field {
+                        data_type: DataType::scalar("int16u"),
+                        id: "identifyType",
+                        code: 123,
+                    },
+                    maturity: ApiMaturity::STABLE,
+                    is_optional: false,
+                    is_nullable: false,
+                    is_fabric_sensitive: false,
+                },
+                read_acl: AccessPrivilege::View,
+                write_acl: AccessPrivilege::Operate,
+                is_read_only: false,
+                is_no_subscribe: false,
+                is_timed_write: false,
+            },
+        );
+        assert_parse_ok(
+            Attribute::parse("
+            internal timedwrite 
+               access(read: manage, write: administer) 
+               attribute 
+               optional boolean x[] = 0x123 
+            ;".into()),
+            Attribute {
+                field: StructField {
+                    field: Field {
+                        data_type: DataType::list_of("boolean"),
+                        id: "x",
+                        code: 0x123,
+                    },
+                    maturity: ApiMaturity::STABLE,
+                    is_optional: true,
+                    is_nullable: false,
+                    is_fabric_sensitive: false,
+                },
+                read_acl: AccessPrivilege::Manage,
+                write_acl: AccessPrivilege::Administer,
+                is_read_only: false,
+                is_no_subscribe: false,
+                is_timed_write: true,
+            },
+        );
+    }
+
+    #[test]
     fn test_parse_command() {
         assert_parse_ok(
             Command::parse("
             /** Test with many options. */
-            fabric timed command access(invoke: administer) GetSetupPIN(GetSetupPINRequest): GetSetupPINResponse = 0;
+            internal fabric timed command access(invoke: administer) GetSetupPIN(GetSetupPINRequest): GetSetupPINResponse = 0;
             ".into()),
             Command {
                 doc_comment: Some(" Test with many options. "),
+                maturity: ApiMaturity::INTERNAL,
                 access: AccessPrivilege::Administer,
                 id: "GetSetupPIN",
                 input: Some("GetSetupPINRequest"),
@@ -865,6 +957,7 @@ mod tests {
             Command::parse("command TestVeryBasic(): DefaultSuccess = 0x123;".into()),
             Command {
                 doc_comment: None,
+                maturity: ApiMaturity::STABLE,
                 access: AccessPrivilege::Operate,
                 id: "TestVeryBasic",
                 input: None,
@@ -891,6 +984,7 @@ mod tests {
             ),
             Event {
                 doc_comment: Some(" this is a catch-all "),
+                maturity: ApiMaturity::STABLE,
                 priority: EventPriority::Info,
                 access: AccessPrivilege::Administer,
                 id: "AccessControlEntryChanged",

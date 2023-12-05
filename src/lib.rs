@@ -19,13 +19,15 @@ type Span<'a> = LocatedSpan<&'a str>;
 ///
 /// Most things should be stable, however while spec is developed
 /// we expect PROVISIONAL to be set.
-#[derive(Debug, PartialEq, Copy, Clone, Hash, PartialOrd, Eq, Ord)]
+#[derive(Debug, PartialEq, Copy, Clone, Hash, PartialOrd, Eq, Ord, Default)]
 pub enum ApiMaturity {
+    #[default]
     STABLE,
     PROVISIONAL,
     INTERNAL,
     DEPRECATED,
 }
+
 
 /// A parser that CANNOT fail
 ///
@@ -434,7 +436,7 @@ impl<'a> Bitmap<'a> {
 ///
 /// Supports information if this is repeated/list as well
 /// as a maximum length (if applicable).
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct DataType<'a> {
     name: &'a str,
     is_list: bool,
@@ -470,7 +472,7 @@ impl<'a> DataType<'a> {
 /// Represents a generic field.
 ///
 /// Fields have a type, name(id) and numeric code.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Field<'a> {
     pub data_type: DataType<'a>,
     pub id: &'a str,
@@ -539,7 +541,7 @@ macro_rules! tags_set {
 ///
 /// Specifically this adds structure specific information
 /// such as API maturity, optional/nullable/fabric_sensitive
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct StructField<'a> {
     pub field: Field<'a>,
     pub maturity: ApiMaturity,
@@ -840,6 +842,8 @@ impl Command<'_> {
 /// An attribute within a cluster
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Attribute<'a> {
+    pub doc_comment: Option<&'a str>,
+    pub maturity: ApiMaturity,
     pub field: StructField<'a>,
     pub read_acl: AccessPrivilege,
     pub write_acl: AccessPrivilege,
@@ -848,23 +852,85 @@ pub struct Attribute<'a> {
     pub is_timed_write: bool,
 }
 
-impl Attribute<'_> {
-    pub fn parse(span: Span) -> IResult<Span, Attribute<'_>> {
-        todo!();
+// Returns read & write access,
+// CANNOT fail (returns defaults if it fails)
+fn attribute_access(span: Span) -> IResult<Span, (AccessPrivilege, AccessPrivilege)> {
+    let (span, tags) = opt(delimited(
+        tuple((
+            whitespace0,
+            tag_no_case("access"),
+            whitespace0,
+            tag("("),
+            whitespace0,
+        )),
+        separated_list0(
+            tuple((whitespace0, tag(","), whitespace0)),
+            tuple((
+                whitespace0,
+                alt((tag_no_case("read"), tag_no_case("write"))),
+                whitespace0,
+                tag(":"),
+                whitespace0,
+                access_privilege,
+                whitespace0,
+            ))
+            .map(|(_, k, _, _, _, v, _)| (*k.fragment(), v)),
+        ),
+        tuple((whitespace0, tag(")"))),
+    ))
+    .parse(span)?;
+
+    let mut read_acl = AccessPrivilege::View;
+    let mut write_acl = AccessPrivilege::Operate;
+
+    if let Some(entries) = tags {
+        for entry in entries {
+            match entry.0 {
+                "read" => read_acl = entry.1,
+                "write" => write_acl = entry.1,
+                _ => panic!("Should hjave only matched read or write"),
+            }
+        }
     }
+
+    Ok((span, (read_acl, write_acl)))
 }
 
-// attribute: attribute_qualities "attribute"i attribute_with_access ";"
-// attribute_qualities: attribute_quality* -> attribute_qualities
-// attribute_quality: "readonly"i -> attr_readonly
-//                  | "nosubscribe"i -> attr_nosubscribe
-//                  | "timedwrite"i -> attr_timed
-// attribute_with_access: attribute_access? struct_field
-//
-// ?attribute_access_type: "read"i  -> read_access
-//                      | "write"i -> write_access
-// attribute_access_entry: attribute_access_type ":" access_privilege
-// attribute_access: "access"i "(" (attribute_access_entry ("," attribute_access_entry)* )? ")"
+impl Attribute<'_> {
+    pub fn parse(span: Span) -> IResult<Span, Attribute<'_>> {
+        let (span, doc_comment) = whitespace0.parse(span)?;
+        let doc_comment = doc_comment.map(|DocComment(s)| s);
+
+        let (span, maturity) = tuple((api_maturity, whitespace0))
+            .map(|(m, _)| m)
+            .parse(span)?;
+
+        let (span, qualities) = tags_set!("readonly", "nosubscribe", "timedwrite").parse(span)?;
+        let is_read_only = qualities.contains("readonly");
+        let is_no_subscribe = qualities.contains("nosubscribe");
+        let is_timed_write = qualities.contains("timedwrite");
+
+        tuple((
+            whitespace0,
+            tag_no_case("attribute"),
+            whitespace1,
+            attribute_access,
+            whitespace0,
+            StructField::parse,
+        ))
+        .map(|(_, _, _, (read_acl, write_acl), _, field)| Attribute {
+            doc_comment,
+            maturity,
+            field,
+            read_acl,
+            write_acl,
+            is_read_only,
+            is_no_subscribe,
+            is_timed_write,
+        })
+        .parse(span)
+    }
+}
 
 // TODO (in order)
 //   - attributes
@@ -888,10 +954,12 @@ mod tests {
         assert_parse_ok(
             Attribute::parse("attribute int16u identifyTime = 123;".into()),
             Attribute {
+                doc_comment: None,
+                maturity: ApiMaturity::STABLE,
                 field: StructField {
                     field: Field {
                         data_type: DataType::scalar("int16u"),
-                        id: "identifyType",
+                        id: "identifyTime",
                         code: 123,
                     },
                     maturity: ApiMaturity::STABLE,
@@ -907,13 +975,19 @@ mod tests {
             },
         );
         assert_parse_ok(
-            Attribute::parse("
+            Attribute::parse(
+                "
+            /**mix of tests*/
             internal timedwrite 
-               access(read: manage, write: administer) 
                attribute 
+               access(read: manage, write: administer) 
                optional boolean x[] = 0x123 
-            ;".into()),
+            ;"
+                .into(),
+            ),
             Attribute {
+                doc_comment: Some("mix of tests"),
+                maturity: ApiMaturity::INTERNAL,
                 field: StructField {
                     field: Field {
                         data_type: DataType::list_of("boolean"),

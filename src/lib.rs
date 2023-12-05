@@ -1050,6 +1050,31 @@ impl Cluster<'_> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub struct Idl<'a> {
+    pub clusters: Vec<Cluster<'a>>
+}
+
+impl Idl<'_> {
+    // TODO: better errors
+    pub fn parse(mut span: Span) -> Result<Idl, String> {
+        let mut idl = Idl::default();
+
+        while let Ok((rest, cluster)) = Cluster::parse(span) {
+            idl.clusters.push(cluster);
+            span = rest;
+        }
+
+        let (span, _) = whitespace0.parse(span).expect("Whitespace0 cannot fail");
+
+        if !span.is_empty() {
+            return Err(format!("Not the entire file was parsed {:?}", span));
+        }
+
+        Ok(idl)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -9,5 +9,5 @@ fn main() {
 // Define a `fibonacci` function and register it for benchmarking.
 #[divan::bench]
 fn parse_client_clusters() {
-   Idl::parse(black_box(include_str!("../sample-clusters.matter").into())).unwrap();
+    Idl::parse(black_box(include_str!("../sample-clusters.matter").into())).unwrap();
 }

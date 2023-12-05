@@ -953,7 +953,45 @@ pub struct Cluster<'a> {
     pub commands: Vec<Command<'a>>,
 }
 
-impl Cluster<'_> {
+impl<'a> Cluster<'a> {
+    fn parse_member<'b: 'a, 'c>(&'c mut self, span: Span<'b>) -> Option<Span<'b>> {
+        if let Ok((rest, revision)) = delimited(
+            tuple((whitespace0, tag_no_case("revision"), whitespace1)),
+            positive_integer,
+            tuple((whitespace0, tag(";"))),
+        )
+        .parse(span)
+        {
+            self.revision = revision;
+            return Some(rest);
+        }
+        if let Ok((rest, b)) = Bitmap::parse(span) {
+            self.bitmaps.push(b);
+            return Some(rest);
+        }
+        if let Ok((rest, e)) = Enum::parse(span) {
+            self.enums.push(e);
+            return Some(rest);
+        }
+        if let Ok((rest, s)) = Struct::parse(span) {
+            self.structs.push(s);
+            return Some(rest);
+        }
+        if let Ok((rest, a)) = Attribute::parse(span) {
+            self.attributes.push(a);
+            return Some(rest);
+        }
+        if let Ok((rest, c)) = Command::parse(span) {
+            self.commands.push(c);
+            return Some(rest);
+        }
+        if let Ok((rest, e)) = Event::parse(span) {
+            self.events.push(e);
+            return Some(rest);
+        }
+        None
+    }
+
     pub fn parse(span: Span) -> IResult<Span, Cluster<'_>> {
         let (span, doc_comment) = whitespace0.parse(span)?;
         let doc_comment = doc_comment.map(|DocComment(s)| s);
@@ -989,63 +1027,18 @@ impl Cluster<'_> {
         .parse(span)?;
 
         let (mut span, _) = tag("{").parse(span)?;
-        loop {
-            if let Ok((rest, revision)) = delimited(
-                tuple((whitespace0, tag_no_case("revision"), whitespace1)),
-                positive_integer,
-                tuple((whitespace0, tag(";"))),
-            )
-            .parse(span)
-            {
-                cluster.revision = revision;
-                span = rest;
-                continue;
-            }
-            if let Ok((rest, b)) = Bitmap::parse(span) {
-                cluster.bitmaps.push(b);
-                span = rest;
-                continue;
-            }
-            if let Ok((rest, e)) = Enum::parse(span) {
-                cluster.enums.push(e);
-                span = rest;
-                continue;
-            }
-            if let Ok((rest, s)) = Struct::parse(span) {
-                cluster.structs.push(s);
-                span = rest;
-                continue;
-            }
-            if let Ok((rest, a)) = Attribute::parse(span) {
-                cluster.attributes.push(a);
-                span = rest;
-                continue;
-            }
-            if let Ok((rest, c)) = Command::parse(span) {
-                cluster.commands.push(c);
-                span = rest;
-                continue;
-            }
-            if let Ok((rest, e)) = Event::parse(span) {
-                cluster.events.push(e);
-                span = rest;
-                continue;
-            }
-            // no match found, give up
-            break;
+        while let Some(rest) = cluster.parse_member(span) {
+            span = rest;
         }
 
-        let (span, _) = tuple((whitespace0, tag("}"))).parse(span)?;
-
-        // ?cluster_content: [maturity] (enum|bitmap|event|attribute|struct|request_struct|response_struct|command)
-
-        Ok((span, cluster))
+        // finally consume the final tag
+        value(cluster, tuple((whitespace0, tag("}")))).parse(span)
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Idl<'a> {
-    pub clusters: Vec<Cluster<'a>>
+    pub clusters: Vec<Cluster<'a>>,
 }
 
 impl Idl<'_> {
@@ -1061,7 +1054,11 @@ impl Idl<'_> {
         let (span, _) = whitespace0.parse(span).expect("Whitespace0 cannot fail");
 
         if !span.is_empty() {
-            return Err(format!("Not the entire file was parsed {:?} {:?}", Cluster::parse(span), span));
+            return Err(format!(
+                "Not the entire file was parsed {:?} {:?}",
+                Cluster::parse(span),
+                span
+            ));
         }
 
         Ok(idl)
@@ -1104,37 +1101,37 @@ mod tests {
             code: 0x123,
             revision: 22,
             enums: vec![
-                Enum { 
-                    doc_comment: None, 
-                    maturity: ApiMaturity::STABLE, 
-                    id: "ApplyUpdateActionEnum", 
-                    base_type: "enum8", 
+                Enum {
+                    doc_comment: None,
+                    maturity: ApiMaturity::STABLE,
+                    id: "ApplyUpdateActionEnum",
+                    base_type: "enum8",
                     entries: vec![
-                        ConstantEntry { maturity: ApiMaturity::STABLE, id: "kProceed", code: 0 }, 
-                        ConstantEntry { maturity: ApiMaturity::STABLE, id: "kAwaitNextAction", code: 1 }, 
+                        ConstantEntry { maturity: ApiMaturity::STABLE, id: "kProceed", code: 0 },
+                        ConstantEntry { maturity: ApiMaturity::STABLE, id: "kAwaitNextAction", code: 1 },
                         ConstantEntry { maturity: ApiMaturity::STABLE, id: "kDiscontinue", code: 2 },
                     ]
                },
-            ], 
-            attributes: vec![Attribute { 
-                doc_comment: None, 
-                maturity: ApiMaturity::STABLE, 
-                field: StructField { 
-                    field: Field { data_type: DataType::list_of("attrib_id"), id: "attributeList", code: 65531 }, 
-                    maturity: ApiMaturity::STABLE, 
-                    is_optional: false, 
-                    is_nullable: false, 
-                    is_fabric_sensitive: false 
+            ],
+            attributes: vec![Attribute {
+                doc_comment: None,
+                maturity: ApiMaturity::STABLE,
+                field: StructField {
+                    field: Field { data_type: DataType::list_of("attrib_id"), id: "attributeList", code: 65531 },
+                    maturity: ApiMaturity::STABLE,
+                    is_optional: false,
+                    is_nullable: false,
+                    is_fabric_sensitive: false
                 },
-                read_acl: AccessPrivilege::View, 
+                read_acl: AccessPrivilege::View,
                 write_acl: AccessPrivilege::Operate,
-                is_read_only: true, 
-                is_no_subscribe: false, 
-                is_timed_write: false 
-            }], 
+                is_read_only: true,
+                is_no_subscribe: false,
+                is_timed_write: false
+            }],
             commands: vec![
-                Command { 
-                    doc_comment: None, 
+                Command {
+                    doc_comment: None,
                     maturity: ApiMaturity::STABLE, 
                     access: AccessPrivilege::Administer, 
                     id: "CommissioningComplete", 

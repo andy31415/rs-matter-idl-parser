@@ -28,7 +28,6 @@ pub enum ApiMaturity {
     DEPRECATED,
 }
 
-
 /// A parser that CANNOT fail
 ///
 /// Note that it will consume no input if no maturity is specified
@@ -932,9 +931,44 @@ impl Attribute<'_> {
     }
 }
 
-// TODO (in order)
-//   - attributes
-//   - cluster (it will be fully parseable after this)
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub struct Cluster<'a> {
+    pub doc_comment: Option<&'a str>,
+    pub maturity: ApiMaturity,
+
+    pub id: &'a str,
+    pub code: u32,
+    pub revision: u32,
+
+    pub bitmaps: Vec<Bitmap<'a>>,
+    pub enums: Vec<Enum<'a>>,
+    pub structs: Vec<Struct<'a>>,
+
+    pub events: Vec<Event<'a>>,
+    pub attributes: Vec<Attribute<'a>>,
+    pub commands: Vec<Command<'a>>,
+}
+
+impl Cluster<'_> {
+    pub fn parse(span: Span) -> IResult<Span, Cluster<'_>> {
+        let (span, doc_comment) = whitespace0.parse(span)?;
+        let doc_comment = doc_comment.map(|DocComment(s)| s);
+
+        let (span, maturity) = tuple((api_maturity, whitespace0))
+            .map(|(m, _)| m)
+            .parse(span)?;
+
+        let mut cluster = Cluster {
+            doc_comment,
+            maturity,
+            ..Default::default()
+        };
+
+        // TODO: implement
+
+        Ok((span, cluster))
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -947,6 +981,30 @@ mod tests {
     fn assert_parse_ok<R: PartialEq + std::fmt::Debug>(parsed: IResult<Span, R>, expected: R) {
         let actual = parsed.expect("Parse should have succeeded").1;
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_parse_cluster() {
+        assert_parse_ok(Cluster::parse("
+          /** This is totally made up */
+          internal cluster MyTestCluster = 0x123 {
+             revision 22; // just for testing
+
+             enum ApplyUpdateActionEnum : enum8 {
+               kProceed = 0;
+               kAwaitNextAction = 1;
+               kDiscontinue = 2;
+             }
+
+             readonly attribute attrib_id attributeList[] = 65531;
+             fabric command access(invoke: administer) CommissioningComplete(): CommissioningCompleteResponse = 4;
+          }
+        ".into()), Cluster {
+            doc_comment: Some(" This is totally made up "),
+            maturity: ApiMaturity::INTERNAL,
+
+            ..Default::default()
+        });
     }
 
     #[test]

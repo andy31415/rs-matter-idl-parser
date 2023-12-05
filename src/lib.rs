@@ -342,6 +342,7 @@ fn constant_entries_list(span: Span) -> IResult<Span, Vec<ConstantEntry<'_>>> {
     .parse(span)
 }
 
+/// A set of constant entries that correspont to an enumeration.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Enum<'a> {
     pub doc_comment: Option<&'a str>,
@@ -381,6 +382,7 @@ impl<'a> Enum<'a> {
     }
 }
 
+/// A set of constant entries that correspont to a bitmap.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Bitmap<'a> {
     pub doc_comment: Option<&'a str>,
@@ -553,6 +555,10 @@ impl StructField<'_> {
     }
 }
 
+/// Defines the type of a structure.
+/// 
+/// Response structures contain the underlying code used to send
+/// that structure as a reply.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum StructType {
     Regular,
@@ -560,6 +566,10 @@ pub enum StructType {
     Response(u32), // response with a code
 }
 
+/// A structure defined in IDL.
+/// 
+/// Structures may be regular (as data types), request (used in command inputs)
+/// or responses (used as command outputs, have an id)
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Struct<'a> {
     pub struct_type: StructType,

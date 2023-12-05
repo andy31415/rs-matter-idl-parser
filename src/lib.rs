@@ -691,6 +691,14 @@ mod tests {
 
     #[test]
     fn test_parse_access_privilege() {
+        assert!(access_privilege("xyz".into()).is_err());
+        assert!(access_privilege("FooBar".into()).is_err());
+        assert!(access_privilege("MaybeView".into()).is_err());
+
+        // does NOT consume whitespace
+        assert!(access_privilege("   view".into()).is_err());
+        assert!(access_privilege("   manage   ".into()).is_err());
+
         assert_parse_ok(access_privilege("view".into()), AccessPrivilege::View);
         assert_parse_ok(access_privilege("operate".into()), AccessPrivilege::Operate);
         assert_parse_ok(access_privilege("ManaGe".into()), AccessPrivilege::Manage);

@@ -577,7 +577,8 @@ mod tests {
                      =
                       0xabc
                   
-                       ;".into()
+                       ;"
+                .into()
             )),
             Ok((
                 "".into(),
@@ -589,7 +590,17 @@ mod tests {
             ))
         );
         assert_eq!(
-            remove_loc(ConstantEntry::parse("/*comment*/ internal//test\nkTest //more comments\n\n  =/*test*/ 0xabc //test\n\n;".into())),
+            remove_loc(ConstantEntry::parse(
+                "
+            /*comment*/ internal
+            //test
+            kTest //more comments
+                 = /*test*/
+                   // and more
+                  0xabc //test ;;; these are in comments ;;;
+                  ;"
+                .into()
+            )),
             Ok((
                 "".into(),
                 ConstantEntry {

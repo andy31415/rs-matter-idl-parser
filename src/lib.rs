@@ -645,10 +645,10 @@ impl Struct<'_> {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum AccessPrivilege {
-    View, 
+    View,
     Operate,
     Manage,
-    Administer
+    Administer,
 }
 
 pub fn access_privilege(span: Span) -> IResult<Span, AccessPrivilege> {
@@ -673,8 +673,6 @@ pub fn access_privilege(span: Span) -> IResult<Span, AccessPrivilege> {
 //                  | "operate"i    -> operate_privilege
 //                  | "manage"i     -> manage_privilege
 //                  | "administer"i -> administer_privilege
-
-
 
 #[cfg(test)]
 mod tests {
@@ -702,7 +700,10 @@ mod tests {
         assert_parse_ok(access_privilege("view".into()), AccessPrivilege::View);
         assert_parse_ok(access_privilege("operate".into()), AccessPrivilege::Operate);
         assert_parse_ok(access_privilege("ManaGe".into()), AccessPrivilege::Manage);
-        assert_parse_ok(access_privilege("adminisTER".into()), AccessPrivilege::Administer);
+        assert_parse_ok(
+            access_privilege("adminisTER".into()),
+            AccessPrivilege::Administer,
+        );
     }
 
     #[test]

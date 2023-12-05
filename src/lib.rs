@@ -825,14 +825,8 @@ impl Command<'_> {
     }
 }
 
-// command: command_qualities "command"i command_access? id "(" id? ")" ":" id "=" positive_integer ";"
-// command_qualities: command_quality*
-// command_quality: "timed"i -> timed_command
-//               | "fabric"i -> fabric_scoped_command
-// command_access: "access"i "(" ("invoke"i ":" access_privilege)? ")"
 
 // TODO (in order)
-//   - commands
 //   - attributes
 //   - cluster (it will be fully parseable after this)
 

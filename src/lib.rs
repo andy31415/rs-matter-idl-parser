@@ -771,7 +771,57 @@ pub struct Command<'a> {
 
 impl Command<'_> {
     pub fn parse(span: Span) -> IResult<Span, Command<'_>> {
-        todo!()
+        let (span, doc_comment) = whitespace0.parse(span)?;
+        let doc_comment = doc_comment.map(|DocComment(s)| s);
+
+        let (span, qualities) = tags_set!("timed", "fabric").parse(span)?;
+
+        let is_timed = qualities.contains("timed");
+        let is_fabric_scoped = qualities.contains("fabric");
+
+        let access_parser = opt(tuple((
+            tuple((
+                whitespace0,
+                tag_no_case("access"),
+                whitespace0,
+                tag("("),
+                whitespace0,
+                tag_no_case("invoke"),
+                tag(":"),
+                whitespace0,
+            )),
+            access_privilege,
+            tuple((whitespace0, tag(")"))),
+        ))
+        .map(|(_, p, _)| p))
+        .map(|opt_access| opt_access.unwrap_or(AccessPrivilege::Operate));
+
+        tuple((
+            tuple((whitespace0, tag_no_case("command"))),
+            access_parser,
+            whitespace0,
+            parse_id,
+            tuple((whitespace0, tag("("), whitespace0)),
+            opt(parse_id),
+            tuple((whitespace0, tag(")"), whitespace0, tag(":"), whitespace0)),
+            parse_id,
+            tuple((whitespace0, tag("="), whitespace0)),
+            positive_integer,
+            tuple((whitespace0, tag(";"))),
+        ))
+        .map(
+            |(_, access, _, id, _, input, _, output, _, code, _)| Command {
+                doc_comment,
+                access,
+                id,
+                input,
+                output,
+                code,
+                is_timed,
+                is_fabric_scoped,
+            },
+        )
+        .parse(span)
     }
 }
 
@@ -809,9 +859,9 @@ mod tests {
             Command {
                 doc_comment: Some(" Test with many options. "),
                 access: AccessPrivilege::Administer,
-                id: "GetSetupPin",
+                id: "GetSetupPIN",
                 input: Some("GetSetupPINRequest"),
-                output: "GetSetupPinResponse",
+                output: "GetSetupPINResponse",
                 code: 0,
                 is_timed: true,
                 is_fabric_scoped: true,

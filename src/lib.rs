@@ -467,7 +467,7 @@ pub struct Field<'a> {
     pub code: u32,
 }
 
-impl<'a> Field<'a> {
+impl Field<'_> {
     pub fn parse(span: Span) -> IResult<Span, Field<'_>> {
         tuple((
             whitespace0,
@@ -512,12 +512,12 @@ impl<'a> Field<'a> {
 pub struct StructField<'a> {
     pub field: Field<'a>,
     pub maturity: ApiMaturity,
-    pub optional: bool,
-    pub nullable: bool,
-    pub fabric_sensitive: bool,
+    pub is_optional: bool,
+    pub is_nullable: bool,
+    pub is_fabric_sensitive: bool,
 }
 
-impl<'a> StructField<'a> {
+impl StructField<'_> {
     pub fn parse(span: Span) -> IResult<Span, StructField<'_>> {
         let (span, maturity) = tuple((whitespace0, parse_api_maturity, whitespace0))
             .map(|(_, m, _)| m)
@@ -534,9 +534,9 @@ impl<'a> StructField<'a> {
         .map(|attrs| HashSet::from_iter(attrs.iter().map(|s| *s.fragment())))
         .parse(span)?;
 
-        let optional = attributes.contains("optional");
-        let nullable = attributes.contains("nullable");
-        let fabric_sensitive = attributes.contains("fabric_sensitive");
+        let is_optional = attributes.contains("optional");
+        let is_nullable = attributes.contains("nullable");
+        let is_fabric_sensitive = attributes.contains("fabric_sensitive");
 
         let (span, field) = Field::parse(span)?;
 
@@ -545,18 +545,78 @@ impl<'a> StructField<'a> {
             StructField {
                 field,
                 maturity,
-                optional,
-                nullable,
-                fabric_sensitive,
+                is_optional,
+                is_nullable,
+                is_fabric_sensitive,
+            },
+        ))
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum StructType {
+    Regular,
+    Request,
+    Response(u32), // response with a code
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Struct<'a> {
+    pub struct_type: StructType,
+    pub id: &'a str,
+    pub fields: Vec<StructField<'a>>,
+    pub is_fabric_scoped: bool,
+}
+
+impl Struct<'_> {
+    pub fn parse(span: Span) -> IResult<Span, Struct<'_>> {
+        let (span, _) = whitespace0.parse(span)?;
+
+        let (span, attributes): (_, HashSet<&'_ str>) =
+            separated_list0(whitespace1, tag_no_case("fabric_scoped"))
+                .map(|attrs| HashSet::from_iter(attrs.iter().map(|s| *s.fragment())))
+                .parse(span)?;
+
+        let is_fabric_scoped = attributes.contains("fabric_scoped");
+
+        eprintln!("Parsing struct: {:?}", span.fragment());
+
+        let (span, (id, fields)) = tuple((
+            tag_no_case("struct"),
+            whitespace1,
+            parse_id,
+            whitespace0,
+            delimited(
+                tag("{"),
+                many0(
+                    tuple((
+                        whitespace0,
+                        StructField::parse,
+                        whitespace0,
+                        tag(";"),
+                        whitespace0,
+                    ))
+                    .map(|(_, f, _, _, _)| f),
+                ),
+                tag("}"),
+            ),
+        ))
+        .map(|(_, _, id, _, fields)| (id, fields))
+        .parse(span)?;
+
+        Ok((
+            span,
+            Struct {
+                struct_type: StructType::Regular, // TODO: fix this
+                id,
+                fields,
+                is_fabric_scoped,
             },
         ))
     }
 }
 
 // TODO: structs
-//    - needs fields (generic: structs and events have these)
-//    - within fields making struc fields
-//
 // struct: struct_qualities "struct"i id "{" (struct_field ";")* "}"
 // struct_qualities: struct_quality*
 // struct_quality: "fabric_scoped"i -> struct_fabric_scoped
@@ -576,6 +636,84 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_struct() {
+        assert_parse_ok(
+            Struct::parse(
+                "
+              struct ExtensionFieldSet {
+                cluster_id clusterID = 0;
+                AttributeValuePair attributeValueList[] = 1;
+              }"
+                .into(),
+            ),
+            Struct {
+                struct_type: StructType::Regular,
+                id: "ExtensionFieldSet",
+                fields: vec![
+                    StructField {
+                        field: Field {
+                            data_type: DataType::scalar("cluster_id"),
+                            id: "clusterID",
+                            code: 0,
+                        },
+                        maturity: ApiMaturity::STABLE,
+                        is_optional: false,
+                        is_nullable: false,
+                        is_fabric_sensitive: false,
+                    },
+                    StructField {
+                        field: Field {
+                            data_type: DataType::list_of("AttributeValuePair"),
+                            id: "attributeValueList",
+                            code: 1,
+                        },
+                        maturity: ApiMaturity::STABLE,
+                        is_optional: false,
+                        is_nullable: false,
+                        is_fabric_sensitive: false,
+                    },
+                ],
+                is_fabric_scoped: false,
+            },
+        );
+        /*
+        assert_parse_ok(
+            Struct::parse(
+                "
+                 request struct TestEventTriggerRequest {
+                   octet_string<16> enableKey = 0;
+                   int64u eventTrigger = 1;
+                 }"
+                .into(),
+            ),
+            Struct {
+                struct_type: StructType::Request,
+                id: "TestEventTriggerRequest",
+                fields: vec![],
+                is_fabric_scoped: false,
+            },
+        );
+
+        assert_parse_ok(
+            Struct::parse(
+                "
+                 response struct TimeSnapshotResponse = 2 {
+                   systime_us systemTimeUs = 0;
+                   nullable epoch_us UTCTimeUs = 1;
+                 }"
+                .into(),
+            ),
+            Struct {
+                struct_type: StructType::Response(2),
+                id: "TimeSnapshotResponse",
+                fields: vec![],
+                is_fabric_scoped: false,
+            },
+        );
+        */
+    }
+
+    #[test]
     fn test_parse_struct_field() {
         assert_parse_ok(
             StructField::parse("int8u sceneCount = 0;".into()),
@@ -586,9 +724,9 @@ mod tests {
                     code: 0,
                 },
                 maturity: ApiMaturity::STABLE,
-                optional: false,
-                nullable: false,
-                fabric_sensitive: false,
+                is_optional: false,
+                is_nullable: false,
+                is_fabric_sensitive: false,
             },
         );
         assert_parse_ok(
@@ -600,9 +738,9 @@ mod tests {
                     code: 1,
                 },
                 maturity: ApiMaturity::STABLE,
-                optional: false,
-                nullable: false,
-                fabric_sensitive: true,
+                is_optional: false,
+                is_nullable: false,
+                is_fabric_sensitive: true,
             },
         );
         assert_parse_ok(
@@ -616,9 +754,9 @@ mod tests {
                     code: 5,
                 },
                 maturity: ApiMaturity::STABLE,
-                optional: true,
-                nullable: true,
-                fabric_sensitive: false,
+                is_optional: true,
+                is_nullable: true,
+                is_fabric_sensitive: false,
             },
         );
     }

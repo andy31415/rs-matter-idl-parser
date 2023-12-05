@@ -1,6 +1,6 @@
 use nom::{
     branch::alt,
-    bytes::complete::{is_not, tag, take_until, take_while, take_while1, tag_no_case},
+    bytes::complete::{is_not, tag, tag_no_case, take_until, take_while, take_while1},
     character::complete::{hex_digit1, one_of, space0},
     combinator::{map, map_res, recognize},
     error::{Error as NomError, ErrorKind},
@@ -516,7 +516,7 @@ mod tests {
                 }
             ))
         );
-        
+
         assert_eq!(
             remove_loc(ConstantEntry::parse("provisional xyz = 0x123 ;".into())),
             Ok((

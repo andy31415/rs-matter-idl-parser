@@ -1,7 +1,7 @@
 use nom::{
     branch::alt,
     bytes::complete::{is_not, tag, tag_no_case, take_until, take_while, take_while1},
-    character::complete::{hex_digit1, one_of, space0},
+    character::complete::{hex_digit1, one_of},
     combinator::{map, map_res, recognize},
     error::{Error as NomError, ErrorKind},
     multi::many1,
@@ -308,15 +308,15 @@ impl<'a> ConstantEntry<'a> {
     /// ```
     pub fn parse(span: Span) -> IResult<Span, ConstantEntry<'_>> {
         tuple((
-            space0,
+            whitespace0,
             parse_api_maturity,
-            space0,
+            whitespace0,
             parse_id,
-            space0,
+            whitespace0,
             tag("="),
-            space0,
+            whitespace0,
             parse_positive_integer,
-            space0,
+            whitespace0,
             tag(";"),
         ))
         .map(|(_, maturity, _, id, _, _, _, code, _, _)| ConstantEntry { maturity, id, code })
@@ -547,7 +547,7 @@ mod tests {
         );
 
         assert_eq!(
-            remove_loc(ConstantEntry::parse("provisional xyz = 0x123 ;".into())),
+            remove_loc(ConstantEntry::parse("   provisional xyz = 0x123 ;".into())),
             Ok((
                 "".into(),
                 ConstantEntry {
@@ -560,6 +560,17 @@ mod tests {
 
         assert_eq!(
             remove_loc(ConstantEntry::parse("InterNAL kTest = 0xabc ;".into())),
+            Ok((
+                "".into(),
+                ConstantEntry {
+                    id: "kTest",
+                    code: 0xABC,
+                    maturity: ApiMaturity::INTERNAL
+                }
+            ))
+        );
+        assert_eq!(
+            remove_loc(ConstantEntry::parse("\n\rinternal\n\rkTest\t  \n   =\n\r0xabc\n\n;".into())),
             Ok((
                 "".into(),
                 ConstantEntry {

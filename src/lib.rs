@@ -2,7 +2,7 @@ use nom::{
     branch::alt,
     bytes::complete::{is_not, tag, tag_no_case, take_until, take_while, take_while1},
     character::complete::{hex_digit1, one_of},
-    combinator::{map, map_res, recognize},
+    combinator::{map, map_res, opt, recognize},
     error::{Error as NomError, ErrorKind},
     multi::{many0, many1},
     sequence::{delimited, pair, preceded, tuple},
@@ -418,9 +418,112 @@ impl<'a> Bitmap<'a> {
     }
 }
 
+/// A generic type such as integers, strings, enums etc.
+///
+/// Supports information if this is repeated/list as well
+/// as a maximum length (if applicable).
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct DataType<'a> {
+    name: &'a str,
+    is_list: bool,
+    max_length: Option<u32>,
+}
+
+impl<'a> DataType<'a> {
+    pub fn scalar(name: &'_ str) -> DataType<'_> {
+        DataType {
+            name,
+            is_list: false,
+            max_length: None,
+        }
+    }
+
+    pub fn list_of(name: &'_ str) -> DataType<'_> {
+        DataType {
+            name,
+            is_list: true,
+            max_length: None,
+        }
+    }
+
+    pub fn scalar_of_size(name: &'_ str, max_length: u32) -> DataType<'_> {
+        DataType {
+            name,
+            is_list: false,
+            max_length: Some(max_length),
+        }
+    }
+}
+
+/// Represents a generic field.
+///
+/// Fields have a type, name(id) and numeric code.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Field<'a> {
+    pub data_type: DataType<'a>,
+    pub id: &'a str,
+    pub code: u32,
+}
+
+impl<'a> Field<'a> {
+    pub fn parse(span: Span) -> IResult<Span, Field<'_>> {
+        tuple((
+            whitespace0,
+            parse_id,
+            opt(tuple((
+                whitespace0,
+                tag("<"),
+                whitespace0,
+                parse_positive_integer,
+                whitespace0,
+                tag(">"),
+            ))
+            .map(|(_, _, _, pos, _, _)| pos)),
+            whitespace1,
+            parse_id,
+            whitespace0,
+            opt(tuple((tag("["), whitespace0, tag("]"), whitespace0))),
+            tag("="),
+            whitespace0,
+            parse_positive_integer,
+        ))
+        .map(
+            |(_, type_name, max_length, _, id, _, list_marker, _, _, code)| Field {
+                data_type: DataType {
+                    name: type_name,
+                    is_list: list_marker.is_some(),
+                    max_length,
+                },
+                id,
+                code,
+            },
+        )
+        .parse(span)
+    }
+}
+
+/// Represents a field entry within a struct.
+///
+/// Specifically this adds structure specific information
+/// such as API maturity, optional/nullable/fabric_sensitive
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct StructField<'a> {
+    pub field: Field<'a>,
+    pub maturity: ApiMaturity,
+    pub optional: bool,
+    pub nullable: bool,
+    pub fabric_sensitive: bool,
+}
+
+impl<'a> StructField<'a> {
+    pub fn parse(span: Span) -> IResult<Span, StructField<'_>> {
+        todo!();
+    }
+}
+
 // TODO: structs
 //    - needs fields (generic: structs and events have these)
-//    - 
+//    - within fields making struc fields
 //
 // struct: struct_qualities "struct"i id "{" (struct_field ";")* "}"
 // struct_qualities: struct_quality*
@@ -436,9 +539,6 @@ impl<'a> Bitmap<'a> {
 // list_marker: "[" "]"
 // data_type: type ("<" positive_integer ">")?
 
-
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -447,9 +547,42 @@ mod tests {
         src.map(|(span, o)| ((*span.fragment()).into(), o))
     }
 
+    fn assert_parse_ok<R: PartialEq + std::fmt::Debug>(parsed: IResult<Span, R>, expected: R) {
+        let actual = parsed.expect("Parse should have succeeded").1;
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_parse_field() {
+        assert_parse_ok(
+            Field::parse("bool test = 1".into()),
+            Field {
+                data_type: DataType::scalar("bool"),
+                id: "test",
+                code: 1,
+            },
+        );
+        assert_parse_ok(
+            Field::parse("int32u test[] = 0x12".into()),
+            Field {
+                data_type: DataType::list_of("int32u"),
+                id: "test",
+                code: 0x12,
+            },
+        );
+        assert_parse_ok(
+            Field::parse("octet_string<123> other=10".into()),
+            Field {
+                data_type: DataType::scalar_of_size("octet_string", 123),
+                id: "other",
+                code: 10,
+            },
+        );
+    }
+
     #[test]
     fn test_parse_enum() {
-        assert_eq!(
+        assert_parse_ok(
             Enum::parse(
                 "
   enum EffectIdentifierEnum : enum8 {
@@ -460,10 +593,8 @@ mod tests {
     kFinishEffect = 254;
     kStopEffect = 255;
   }"
-                .into()
-            )
-            .expect("valid value")
-            .1,
+                .into(),
+            ),
             Enum {
                 doc_comment: None,
                 maturity: ApiMaturity::STABLE,
@@ -473,35 +604,35 @@ mod tests {
                     ConstantEntry {
                         maturity: ApiMaturity::STABLE,
                         id: "kBlink",
-                        code: 0
+                        code: 0,
                     },
                     ConstantEntry {
                         maturity: ApiMaturity::STABLE,
                         id: "kBreathe",
-                        code: 1
+                        code: 1,
                     },
                     ConstantEntry {
                         maturity: ApiMaturity::STABLE,
                         id: "kOkay",
-                        code: 2
+                        code: 2,
                     },
                     ConstantEntry {
                         maturity: ApiMaturity::STABLE,
                         id: "kChannelChange",
-                        code: 11
+                        code: 11,
                     },
                     ConstantEntry {
                         maturity: ApiMaturity::STABLE,
                         id: "kFinishEffect",
-                        code: 254
+                        code: 254,
                     },
                     ConstantEntry {
                         maturity: ApiMaturity::STABLE,
                         id: "kStopEffect",
-                        code: 255
+                        code: 255,
                     },
-                ]
-            }
+                ],
+            },
         );
     }
 

@@ -580,5 +580,16 @@ mod tests {
                 }
             ))
         );
+        assert_eq!(
+            remove_loc(ConstantEntry::parse("/*comment*/ internal//test\nkTest //more comments\n\n  =/*test*/ 0xabc //test\n\n;".into())),
+            Ok((
+                "".into(),
+                ConstantEntry {
+                    id: "kTest",
+                    code: 0xABC,
+                    maturity: ApiMaturity::INTERNAL
+                }
+            ))
+        );
     }
 }

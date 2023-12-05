@@ -4,7 +4,7 @@ use nom::{
     branch::alt,
     bytes::complete::{is_not, tag, tag_no_case, take_until, take_while, take_while1},
     character::complete::{hex_digit1, one_of},
-    combinator::{map, map_res, opt, recognize},
+    combinator::{map, map_res, opt, recognize, value},
     error::{Error as NomError, ErrorKind},
     multi::{many0, many1, separated_list0},
     sequence::{delimited, pair, preceded, tuple},
@@ -643,6 +643,39 @@ impl Struct<'_> {
     }
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum AccessPrivilege {
+    View, 
+    Operate,
+    Manage,
+    Administer
+}
+
+pub fn access_privilege(span: Span) -> IResult<Span, AccessPrivilege> {
+    alt((
+        value(AccessPrivilege::View, tag_no_case("view")),
+        value(AccessPrivilege::Operate, tag_no_case("operate")),
+        value(AccessPrivilege::Manage, tag_no_case("manage")),
+        value(AccessPrivilege::Administer, tag_no_case("administer")),
+    ))(span)
+}
+
+// TODO: events
+// event: event_qualities event_priority event_with_access "=" positive_integer "{" (struct_field ";")* "}"
+// event_qualities: event_quality*
+// event_quality: "fabric_sensitive" -> event_fabric_sensitive
+// ?event_priority: "critical"i -> critical_priority
+//               | "info"i     -> info_priority
+//               | "debug"i    -> debug_priority
+// event_with_access: "event" event_access? id
+// event_access: "access" "(" ("read" ":" access_privilege)? ")"
+// ?access_privilege: "view"i       -> view_privilege
+//                  | "operate"i    -> operate_privilege
+//                  | "manage"i     -> manage_privilege
+//                  | "administer"i -> administer_privilege
+
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -654,6 +687,14 @@ mod tests {
     fn assert_parse_ok<R: PartialEq + std::fmt::Debug>(parsed: IResult<Span, R>, expected: R) {
         let actual = parsed.expect("Parse should have succeeded").1;
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_parse_access_privilege() {
+        assert_parse_ok(access_privilege("view".into()), AccessPrivilege::View);
+        assert_parse_ok(access_privilege("operate".into()), AccessPrivilege::Operate);
+        assert_parse_ok(access_privilege("ManaGe".into()), AccessPrivilege::Manage);
+        assert_parse_ok(access_privilege("adminisTER".into()), AccessPrivilege::Administer);
     }
 
     #[test]

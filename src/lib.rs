@@ -660,19 +660,27 @@ pub fn access_privilege(span: Span) -> IResult<Span, AccessPrivilege> {
     ))(span)
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum EventPriority {
+    Critical,
+    Info,
+    Debug
+}
+
+pub fn event_priority(span: Span) -> IResult<Span, EventPriority> {
+    alt((
+        value(EventPriority::Critical, tag_no_case("critical")),
+        value(EventPriority::Info, tag_no_case("info")),
+        value(EventPriority::Debug, tag_no_case("debug")),
+    ))(span)
+}
+
 // TODO: events
 // event: event_qualities event_priority event_with_access "=" positive_integer "{" (struct_field ";")* "}"
 // event_qualities: event_quality*
 // event_quality: "fabric_sensitive" -> event_fabric_sensitive
-// ?event_priority: "critical"i -> critical_priority
-//               | "info"i     -> info_priority
-//               | "debug"i    -> debug_priority
 // event_with_access: "event" event_access? id
 // event_access: "access" "(" ("read" ":" access_privilege)? ")"
-// ?access_privilege: "view"i       -> view_privilege
-//                  | "operate"i    -> operate_privilege
-//                  | "manage"i     -> manage_privilege
-//                  | "administer"i -> administer_privilege
 
 #[cfg(test)]
 mod tests {
@@ -685,6 +693,21 @@ mod tests {
     fn assert_parse_ok<R: PartialEq + std::fmt::Debug>(parsed: IResult<Span, R>, expected: R) {
         let actual = parsed.expect("Parse should have succeeded").1;
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_parse_event_priority() {
+        assert!(event_priority("xyz".into()).is_err());
+        assert!(event_priority("FooBar".into()).is_err());
+        assert!(event_priority("MaybeView".into()).is_err());
+
+        // does NOT consume whitespace
+        assert!(event_priority("   info".into()).is_err());
+        assert!(event_priority("   debug   ".into()).is_err());
+
+        assert_parse_ok(event_priority("info".into()), EventPriority::Info);
+        assert_parse_ok(event_priority("debug".into()), EventPriority::Debug);
+        assert_parse_ok(event_priority("criTICal".into()), EventPriority::Critical);
     }
 
     #[test]

@@ -866,6 +866,20 @@ mod tests {
                 is_timed: true,
                 is_fabric_scoped: true,
             });
+
+        assert_parse_ok(
+            Command::parse("command TestVeryBasic(): DefaultSuccess = 0x123;".into()),
+            Command {
+                doc_comment: None,
+                access: AccessPrivilege::Operate,
+                id: "TestVeryBasic",
+                input: None,
+                output: "DefaultSuccess",
+                code: 0x123,
+                is_timed: false,
+                is_fabric_scoped: false,
+            },
+        );
     }
 
     #[test]

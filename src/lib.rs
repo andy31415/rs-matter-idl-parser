@@ -527,5 +527,17 @@ mod tests {
                 }
             ))
         );
+
+        assert_eq!(
+            remove_loc(ConstantEntry::parse("InterNAL kTest = 0xabc ;".into())),
+            Ok((
+                "".into(),
+                ConstantEntry {
+                    id: "kTest",
+                    code: 0xABC,
+                    maturity: ApiMaturity::INTERNAL
+                }
+            ))
+        );
     }
 }

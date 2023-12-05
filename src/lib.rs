@@ -279,6 +279,7 @@ impl<'a> ConstantEntry<'a> {
     /// Consumes any whitespace BEFORE the entry
     pub fn parse(span: Span) -> IResult<Span, ConstantEntry<'_>> {
         tuple((
+            space0,
             parse_api_maturity,
             space0,
             parse_id,
@@ -289,7 +290,7 @@ impl<'a> ConstantEntry<'a> {
             space0,
             tag(";"),
         ))
-        .map(|(maturity, _, id, _, _, _, code, _, _)| ConstantEntry { maturity, id, code })
+        .map(|(_, maturity, _, id, _, _, _, code, _, _)| ConstantEntry { maturity, id, code })
         .parse(span)
     }
 }

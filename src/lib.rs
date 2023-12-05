@@ -777,6 +777,22 @@ pub struct Command<'a> {
     pub is_fabric_scoped: bool,
 }
 
+impl Default for Command<'_> {
+    fn default() -> Self {
+        Self {
+            access: AccessPrivilege::Operate,
+            doc_comment: None,
+            maturity: ApiMaturity::STABLE,
+            id: "",
+            input: None,
+            output: "DefaultSuccess",
+            code: 0,
+            is_timed: false,
+            is_fabric_scoped: false,
+        }
+    }
+}
+
 impl Command<'_> {
     pub fn parse(span: Span) -> IResult<Span, Command<'_>> {
         let (span, doc_comment) = whitespace0.parse(span)?;
@@ -849,6 +865,21 @@ pub struct Attribute<'a> {
     pub is_read_only: bool,
     pub is_no_subscribe: bool,
     pub is_timed_write: bool,
+}
+
+impl<'a> Default for Attribute<'a> {
+    fn default() -> Self {
+        Self {
+            doc_comment: None,
+            maturity: ApiMaturity::STABLE,
+            field: Default::default(),
+            read_acl: AccessPrivilege::View,
+            write_acl: AccessPrivilege::Operate,
+            is_read_only: false,
+            is_no_subscribe: false,
+            is_timed_write: false,
+        }
+    }
 }
 
 // Returns read & write access,
@@ -1114,32 +1145,23 @@ mod tests {
                },
             ],
             attributes: vec![Attribute {
-                doc_comment: None,
-                maturity: ApiMaturity::STABLE,
                 field: StructField {
                     field: Field { data_type: DataType::list_of("attrib_id"), id: "attributeList", code: 65531 },
-                    maturity: ApiMaturity::STABLE,
-                    is_optional: false,
-                    is_nullable: false,
-                    is_fabric_sensitive: false
+                    ..Default::default()
                 },
                 read_acl: AccessPrivilege::View,
                 write_acl: AccessPrivilege::Operate,
                 is_read_only: true,
-                is_no_subscribe: false,
-                is_timed_write: false
+                ..Default::default()
             }],
             commands: vec![
                 Command {
-                    doc_comment: None,
-                    maturity: ApiMaturity::STABLE, 
-                    access: AccessPrivilege::Administer, 
-                    id: "CommissioningComplete", 
-                    input: None, 
-                    output: "CommissioningCompleteResponse", 
-                    code: 4, 
-                    is_timed: false, 
-                    is_fabric_scoped: true 
+                    access: AccessPrivilege::Administer,
+                    id: "CommissioningComplete",
+                    output: "CommissioningCompleteResponse",
+                    code: 4,
+                    is_fabric_scoped: true,
+                    ..Default::default()
             }],
             ..Default::default()
         });
@@ -1174,10 +1196,10 @@ mod tests {
             Attribute::parse(
                 "
             /**mix of tests*/
-            internal timedwrite 
-               attribute 
-               access(read: manage, write: administer) 
-               optional boolean x[] = 0x123 
+            internal timedwrite
+               attribute
+               access(read: manage, write: administer)
+               optional boolean x[] = 0x123
             ;"
                 .into(),
             ),
@@ -1665,8 +1687,8 @@ mod tests {
             remove_loc(constant_entries_list(
                 "{
                 // Comment
-                kConstantOne = 123; 
-                internal kAnother = 0x23abc /* this tests hex */; 
+                kConstantOne = 123;
+                internal kAnother = 0x23abc /* this tests hex */;
             }suffix"
                     .into()
             )),
@@ -1932,7 +1954,7 @@ mod tests {
                 kTest\t
                      =
                       0xabc
-                  
+
                        ;"
                 .into()
             )),

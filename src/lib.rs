@@ -625,12 +625,6 @@ impl Struct<'_> {
     }
 }
 
-// TODO: structs
-// struct: struct_qualities "struct"i id "{" (struct_field ";")* "}"
-// struct_qualities: struct_quality*
-// struct_quality: "fabric_scoped"i -> struct_fabric_scoped
-//
-
 #[cfg(test)]
 mod tests {
     use super::*;

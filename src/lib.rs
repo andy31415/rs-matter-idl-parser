@@ -4,8 +4,8 @@ use nom::{
     character::complete::{hex_digit1, one_of},
     combinator::{map, map_res, recognize},
     error::{Error as NomError, ErrorKind},
-    multi::many1,
-    sequence::{pair, preceded, tuple},
+    multi::{many0, many1},
+    sequence::{delimited, pair, preceded, tuple},
     IResult, Parser,
 };
 use nom_locate::LocatedSpan;
@@ -324,12 +324,264 @@ impl<'a> ConstantEntry<'a> {
     }
 }
 
+/// Parses a list of constant entries, delimeted by "{" "}".
+///
+/// Consumes the '{' '}' as well as any internal whitespace in them
+fn constant_entries_list(span: Span) -> IResult<Span, Vec<ConstantEntry<'_>>> {
+    delimited(
+        tag("{"),
+        tuple((
+            many0(tuple((whitespace0, ConstantEntry::parse)).map(|(_, v)| v)),
+            whitespace0,
+        )),
+        tag("}"),
+    )
+    .map(|(v, _)| v)
+    .parse(span)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Enum<'a> {
+    pub doc_comment: Option<&'a str>,
+    pub maturity: ApiMaturity,
+    pub id: &'a str,
+    pub base_type: &'a str,
+    pub entries: Vec<ConstantEntry<'a>>,
+}
+
+impl<'a> Enum<'a> {
+    pub fn parse(span: Span) -> IResult<Span, Enum<'_>> {
+        let (span, comment) = whitespace0(span)?;
+        let doc_comment = comment.map(|DocComment(comment)| comment);
+        let (span, maturity) = tuple((parse_api_maturity, whitespace0))
+            .map(|(m, _)| m)
+            .parse(span)?;
+
+        tuple((
+            tag_no_case("enum"),
+            whitespace1,
+            parse_id,
+            whitespace0,
+            tag(":"),
+            whitespace0,
+            parse_id,
+            whitespace0,
+            constant_entries_list,
+        ))
+        .map(|(_, _, id, _, _, _, base_type, _, entries)| Enum {
+            doc_comment,
+            maturity,
+            id,
+            base_type,
+            entries,
+        })
+        .parse(span)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Bitmap<'a> {
+    pub doc_comment: Option<&'a str>,
+    pub maturity: ApiMaturity,
+    pub id: &'a str,
+    pub base_type: &'a str,
+    pub entries: Vec<ConstantEntry<'a>>,
+}
+
+impl<'a> Bitmap<'a> {
+    pub fn parse(span: Span) -> IResult<Span, Bitmap<'_>> {
+        let (span, comment) = whitespace0(span)?;
+        let doc_comment = comment.map(|DocComment(comment)| comment);
+        let (span, maturity) = tuple((parse_api_maturity, whitespace0))
+            .map(|(m, _)| m)
+            .parse(span)?;
+
+        tuple((
+            tag_no_case("bitmap"),
+            whitespace1,
+            parse_id,
+            whitespace0,
+            tag(":"),
+            whitespace0,
+            parse_id,
+            whitespace0,
+            constant_entries_list,
+        ))
+        .map(|(_, _, id, _, _, _, base_type, _, entries)| Bitmap {
+            doc_comment,
+            maturity,
+            id,
+            base_type,
+            entries,
+        })
+        .parse(span)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn remove_loc<O>(src: IResult<Span, O>) -> IResult<Span, O> {
         src.map(|(span, o)| ((*span.fragment()).into(), o))
+    }
+
+    #[test]
+    fn test_parse_enum() {
+        assert_eq!(
+            Enum::parse(
+                "
+  enum EffectIdentifierEnum : enum8 {
+    kBlink = 0;
+    kBreathe = 1;
+    kOkay = 2;
+    kChannelChange = 11;
+    kFinishEffect = 254;
+    kStopEffect = 255;
+  }"
+                .into()
+            )
+            .expect("valid value")
+            .1,
+            Enum {
+                doc_comment: None,
+                maturity: ApiMaturity::STABLE,
+                id: "EffectIdentifierEnum",
+                base_type: "enum8",
+                entries: vec![
+                    ConstantEntry {
+                        maturity: ApiMaturity::STABLE,
+                        id: "kBlink",
+                        code: 0
+                    },
+                    ConstantEntry {
+                        maturity: ApiMaturity::STABLE,
+                        id: "kBreathe",
+                        code: 1
+                    },
+                    ConstantEntry {
+                        maturity: ApiMaturity::STABLE,
+                        id: "kOkay",
+                        code: 2
+                    },
+                    ConstantEntry {
+                        maturity: ApiMaturity::STABLE,
+                        id: "kChannelChange",
+                        code: 11
+                    },
+                    ConstantEntry {
+                        maturity: ApiMaturity::STABLE,
+                        id: "kFinishEffect",
+                        code: 254
+                    },
+                    ConstantEntry {
+                        maturity: ApiMaturity::STABLE,
+                        id: "kStopEffect",
+                        code: 255
+                    },
+                ]
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_bitmap() {
+        assert_eq!(
+            Bitmap::parse(
+                "
+  /** Test feature bitmap */
+  bitmap Feature : bitmap32 {
+    kSceneNames = 0x1;
+    kExplicit = 0x2;
+    kTableSize = 0x4;
+    provisional kFabricScenes = 0x8;
+  }"
+                .into()
+            )
+            .expect("valid value")
+            .1,
+            Bitmap {
+                doc_comment: Some(" Test feature bitmap "),
+                maturity: ApiMaturity::STABLE,
+                id: "Feature",
+                base_type: "bitmap32",
+                entries: vec![
+                    ConstantEntry {
+                        maturity: ApiMaturity::STABLE,
+                        id: "kSceneNames",
+                        code: 0x01
+                    },
+                    ConstantEntry {
+                        maturity: ApiMaturity::STABLE,
+                        id: "kExplicit",
+                        code: 0x02
+                    },
+                    ConstantEntry {
+                        maturity: ApiMaturity::STABLE,
+                        id: "kTableSize",
+                        code: 0x04
+                    },
+                    ConstantEntry {
+                        maturity: ApiMaturity::PROVISIONAL,
+                        id: "kFabricScenes",
+                        code: 0x08
+                    },
+                ]
+            }
+        );
+    }
+
+    #[test]
+    fn test_parse_constant_entry_list() {
+        assert_eq!(
+            remove_loc(constant_entries_list("{}".into())),
+            Ok(("".into(), vec![]))
+        );
+        assert_eq!(
+            remove_loc(constant_entries_list(
+                "{ a = 1; provisional b = 2; }".into()
+            )),
+            Ok((
+                "".into(),
+                vec![
+                    ConstantEntry {
+                        maturity: ApiMaturity::STABLE,
+                        id: "a",
+                        code: 1
+                    },
+                    ConstantEntry {
+                        maturity: ApiMaturity::PROVISIONAL,
+                        id: "b",
+                        code: 2
+                    },
+                ]
+            ))
+        );
+        assert_eq!(
+            remove_loc(constant_entries_list(
+                "{
+                // Comment
+                kConstantOne = 123; 
+                internal kAnother = 0x23abc /* this tests hex */; 
+            }suffix"
+                    .into()
+            )),
+            Ok((
+                "suffix".into(),
+                vec![
+                    ConstantEntry {
+                        maturity: ApiMaturity::STABLE,
+                        id: "kConstantOne",
+                        code: 123
+                    },
+                    ConstantEntry {
+                        maturity: ApiMaturity::INTERNAL,
+                        id: "kAnother",
+                        code: 0x23abc
+                    },
+                ]
+            ))
+        );
     }
 
     #[test]

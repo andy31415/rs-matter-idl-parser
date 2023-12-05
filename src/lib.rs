@@ -563,6 +563,24 @@ impl StructField<'_> {
     }
 }
 
+fn struct_fields(span: Span) -> IResult<Span, Vec<StructField<'_>>> {
+    delimited(
+        tag("{"),
+        many0(
+            tuple((
+                whitespace0,
+                StructField::parse,
+                whitespace0,
+                tag(";"),
+                whitespace0,
+            ))
+            .map(|(_, f, _, _, _)| f),
+        ),
+        tag("}"),
+    )
+    .parse(span)
+}
+
 /// Defines the type of a structure.
 ///
 /// Response structures contain the underlying code used to send
@@ -617,21 +635,7 @@ impl Struct<'_> {
             _ => (span, StructType::Regular),
         };
 
-        let (span, fields) = delimited(
-            tag("{"),
-            many0(
-                tuple((
-                    whitespace0,
-                    StructField::parse,
-                    whitespace0,
-                    tag(";"),
-                    whitespace0,
-                ))
-                .map(|(_, f, _, _, _)| f),
-            ),
-            tag("}"),
-        )
-        .parse(span)?;
+        let (span, fields) = struct_fields(span)?;
 
         Ok((
             span,
@@ -667,7 +671,7 @@ pub fn access_privilege(span: Span) -> IResult<Span, AccessPrivilege> {
 pub enum EventPriority {
     Critical,
     Info,
-    Debug
+    Debug,
 }
 
 pub fn event_priority(span: Span) -> IResult<Span, EventPriority> {
@@ -678,11 +682,72 @@ pub fn event_priority(span: Span) -> IResult<Span, EventPriority> {
     ))(span)
 }
 
-// TODO: events
-// event: event_qualities event_priority "event" event_access? "=" positive_integer "{" (struct_field ";")* "}"
-// event_qualities: event_quality*
-// event_quality: "fabric_sensitive" -> event_fabric_sensitive
-// event_access: "access" "(" ("read" ":" access_privilege)? ")"
+/// An event structure inside the IDL
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Event<'a> {
+    pub doc_comment: Option<&'a str>,
+    pub priority: EventPriority,
+    pub access: AccessPrivilege,
+    pub id: &'a str,
+    pub code: u32,
+    pub fields: Vec<StructField<'a>>,
+    pub is_fabric_sensitive: bool,
+}
+
+impl Event<'_> {
+    pub fn parse(span: Span) -> IResult<Span, Event<'_>> {
+        let (span, doc_comment) = whitespace0.parse(span)?;
+        let doc_comment = doc_comment.map(|DocComment(s)| s);
+
+        let (span, attributes): (_, HashSet<&'_ str>) =
+            separated_list0(whitespace1, tag_no_case("fabric_sensitive"))
+                .map(|attrs| HashSet::from_iter(attrs.iter().map(|s| *s.fragment())))
+                .parse(span)?;
+
+        let is_fabric_sensitive = attributes.contains("fabric_sensitive");
+        tuple((
+            whitespace0,
+            event_priority,
+            whitespace1,
+            tag_no_case("event"),
+            whitespace1,
+            opt(tuple((
+                tag_no_case("access"),
+                whitespace0,
+                tag("("),
+                whitespace0,
+                tag_no_case("read"),
+                tag(":"),
+                whitespace0,
+                access_privilege,
+                whitespace0,
+                tag(")"),
+            ))
+            .map(|(_, _, _, _, _, _, _, p, _, _)| p))
+            .map(|p| p.unwrap_or(AccessPrivilege::View)),
+            whitespace0,
+            parse_id,
+            whitespace0,
+            tag("="),
+            whitespace0,
+            positive_integer,
+            whitespace0,
+            struct_fields,
+        ))
+        .map(
+            |(_, priority, _, _, _, access, _, id, _, _, _, code, _, fields)| Event {
+                doc_comment,
+                priority,
+                access,
+                id,
+                code,
+                fields,
+                is_fabric_sensitive,
+            },
+        )
+        .parse(span)
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -695,6 +760,54 @@ mod tests {
     fn assert_parse_ok<R: PartialEq + std::fmt::Debug>(parsed: IResult<Span, R>, expected: R) {
         let actual = parsed.expect("Parse should have succeeded").1;
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_parse_event() {
+        assert_parse_ok(
+            Event::parse(
+                "
+              /** this is a catch-all */
+              fabric_sensitive info event access(read: administer) AccessControlEntryChanged = 0 {
+                nullable node_id adminNodeID = 1;
+                // !! NOTE More things excluded from the real bits, just to have some test
+                fabric_idx fabricIndex = 254;
+              }"
+                .into(),
+            ),
+            Event {
+                doc_comment: Some(" this is a catch-all "),
+                priority: EventPriority::Info,
+                access: AccessPrivilege::Administer,
+                id: "AccessControlEntryChanged",
+                code: 0,
+                is_fabric_sensitive: true,
+                fields: vec![
+                    StructField {
+                        field: Field {
+                            data_type: DataType::scalar("node_id"),
+                            id: "adminNodeID",
+                            code: 1,
+                        },
+                        maturity: ApiMaturity::STABLE,
+                        is_optional: false,
+                        is_nullable: true,
+                        is_fabric_sensitive: false,
+                    },
+                    StructField {
+                        field: Field {
+                            data_type: DataType::scalar("fabric_idx"),
+                            id: "fabricIndex",
+                            code: 254,
+                        },
+                        maturity: ApiMaturity::STABLE,
+                        is_optional: false,
+                        is_nullable: false,
+                        is_fabric_sensitive: false,
+                    },
+                ],
+            },
+        );
     }
 
     #[test]

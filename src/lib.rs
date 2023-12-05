@@ -572,6 +572,12 @@ impl Struct<'_> {
     pub fn parse(span: Span) -> IResult<Span, Struct<'_>> {
         let (span, _) = whitespace0.parse(span)?;
 
+        let (span, struct_type) =
+            opt(alt((tag_no_case("request"), tag_no_case("response"))))(span)?;
+        let struct_type = struct_type.map(|f| *f.fragment());
+
+        let (span, _) = whitespace0.parse(span)?;
+
         let (span, attributes): (_, HashSet<&'_ str>) =
             separated_list0(whitespace1, tag_no_case("fabric_scoped"))
                 .map(|attrs| HashSet::from_iter(attrs.iter().map(|s| *s.fragment())))
@@ -579,35 +585,38 @@ impl Struct<'_> {
 
         let is_fabric_scoped = attributes.contains("fabric_scoped");
 
-        eprintln!("Parsing struct: {:?}", span.fragment());
+        let (span, id) = tuple((tag_no_case("struct"), whitespace1, parse_id, whitespace0))
+            .map(|(_, _, id, _)| id)
+            .parse(span)?;
 
-        let (span, (id, fields)) = tuple((
-            tag_no_case("struct"),
-            whitespace1,
-            parse_id,
-            whitespace0,
-            delimited(
-                tag("{"),
-                many0(
-                    tuple((
-                        whitespace0,
-                        StructField::parse,
-                        whitespace0,
-                        tag(";"),
-                        whitespace0,
-                    ))
-                    .map(|(_, f, _, _, _)| f),
-                ),
-                tag("}"),
+        let (span, struct_type) = match struct_type {
+            Some("request") => (span, StructType::Request),
+            Some("response") => tuple((tag("="), whitespace0, parse_positive_integer, whitespace0))
+                .map(|(_, _, id, _)| StructType::Response(id))
+                .parse(span)?,
+            _ => (span, StructType::Regular),
+        };
+
+        let (span, fields) = delimited(
+            tag("{"),
+            many0(
+                tuple((
+                    whitespace0,
+                    StructField::parse,
+                    whitespace0,
+                    tag(";"),
+                    whitespace0,
+                ))
+                .map(|(_, f, _, _, _)| f),
             ),
-        ))
-        .map(|(_, _, id, _, fields)| (id, fields))
+            tag("}"),
+        )
         .parse(span)?;
 
         Ok((
             span,
             Struct {
-                struct_type: StructType::Regular, // TODO: fix this
+                struct_type,
                 id,
                 fields,
                 is_fabric_scoped,
@@ -676,7 +685,6 @@ mod tests {
                 is_fabric_scoped: false,
             },
         );
-        /*
         assert_parse_ok(
             Struct::parse(
                 "
@@ -689,7 +697,30 @@ mod tests {
             Struct {
                 struct_type: StructType::Request,
                 id: "TestEventTriggerRequest",
-                fields: vec![],
+                fields: vec![
+                    StructField {
+                        field: Field {
+                            data_type: DataType::scalar_of_size("octet_string", 16),
+                            id: "enableKey",
+                            code: 0,
+                        },
+                        maturity: ApiMaturity::STABLE,
+                        is_optional: false,
+                        is_nullable: false,
+                        is_fabric_sensitive: false,
+                    },
+                    StructField {
+                        field: Field {
+                            data_type: DataType::scalar("int64u"),
+                            id: "eventTrigger",
+                            code: 1,
+                        },
+                        maturity: ApiMaturity::STABLE,
+                        is_optional: false,
+                        is_nullable: false,
+                        is_fabric_sensitive: false,
+                    },
+                ],
                 is_fabric_scoped: false,
             },
         );
@@ -706,11 +737,41 @@ mod tests {
             Struct {
                 struct_type: StructType::Response(2),
                 id: "TimeSnapshotResponse",
-                fields: vec![],
+                fields: vec![
+                    StructField {
+                        field: Field {
+                            data_type: DataType {
+                                name: "systime_us",
+                                is_list: false,
+                                max_length: None,
+                            },
+                            id: "systemTimeUs",
+                            code: 0,
+                        },
+                        maturity: ApiMaturity::STABLE,
+                        is_optional: false,
+                        is_nullable: false,
+                        is_fabric_sensitive: false,
+                    },
+                    StructField {
+                        field: Field {
+                            data_type: DataType {
+                                name: "epoch_us",
+                                is_list: false,
+                                max_length: None,
+                            },
+                            id: "UTCTimeUs",
+                            code: 1,
+                        },
+                        maturity: ApiMaturity::STABLE,
+                        is_optional: false,
+                        is_nullable: true,
+                        is_fabric_sensitive: false,
+                    },
+                ],
                 is_fabric_scoped: false,
             },
         );
-        */
     }
 
     #[test]

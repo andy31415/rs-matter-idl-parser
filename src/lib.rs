@@ -1,10 +1,12 @@
+use std::collections::HashSet;
+
 use nom::{
     branch::alt,
     bytes::complete::{is_not, tag, tag_no_case, take_until, take_while, take_while1},
     character::complete::{hex_digit1, one_of},
     combinator::{map, map_res, opt, recognize},
     error::{Error as NomError, ErrorKind},
-    multi::{many0, many1},
+    multi::{many0, many1, separated_list0},
     sequence::{delimited, pair, preceded, tuple},
     IResult, Parser,
 };
@@ -517,7 +519,37 @@ pub struct StructField<'a> {
 
 impl<'a> StructField<'a> {
     pub fn parse(span: Span) -> IResult<Span, StructField<'_>> {
-        todo!();
+        let (span, maturity) = tuple((whitespace0, parse_api_maturity, whitespace0))
+            .map(|(_, m, _)| m)
+            .parse(span)?;
+
+        let (span, attributes): (_, HashSet<&'_ str>) = separated_list0(
+            whitespace1,
+            alt((
+                tag_no_case("optional"),
+                tag_no_case("nullable"),
+                tag_no_case("fabric_sensitive"),
+            )),
+        )
+        .map(|attrs| HashSet::from_iter(attrs.iter().map(|s| *s.fragment())))
+        .parse(span)?;
+
+        let optional = attributes.contains("optional");
+        let nullable = attributes.contains("nullable");
+        let fabric_sensitive = attributes.contains("fabric_sensitive");
+
+        let (span, field) = Field::parse(span)?;
+
+        Ok((
+            span,
+            StructField {
+                field,
+                maturity,
+                optional,
+                nullable,
+                fabric_sensitive,
+            },
+        ))
     }
 }
 
@@ -529,15 +561,6 @@ impl<'a> StructField<'a> {
 // struct_qualities: struct_quality*
 // struct_quality: "fabric_scoped"i -> struct_fabric_scoped
 //
-// struct_field: [maturity] member_attribute* field
-//
-// member_attribute: "optional"i -> optional
-//                   "nullable"i -> nullable
-//                   "fabric_sensitive"i -> fabric_sensitive
-//
-// field: data_type id list_marker? "=" positive_integer
-// list_marker: "[" "]"
-// data_type: type ("<" positive_integer ">")?
 
 #[cfg(test)]
 mod tests {
@@ -550,6 +573,54 @@ mod tests {
     fn assert_parse_ok<R: PartialEq + std::fmt::Debug>(parsed: IResult<Span, R>, expected: R) {
         let actual = parsed.expect("Parse should have succeeded").1;
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn test_parse_struct_field() {
+        assert_parse_ok(
+            StructField::parse("int8u sceneCount = 0;".into()),
+            StructField {
+                field: Field {
+                    data_type: DataType::scalar("int8u"),
+                    id: "sceneCount",
+                    code: 0,
+                },
+                maturity: ApiMaturity::STABLE,
+                optional: false,
+                nullable: false,
+                fabric_sensitive: false,
+            },
+        );
+        assert_parse_ok(
+            StructField::parse("fabric_sensitive int8u currentScene = 1;".into()),
+            StructField {
+                field: Field {
+                    data_type: DataType::scalar("int8u"),
+                    id: "currentScene",
+                    code: 1,
+                },
+                maturity: ApiMaturity::STABLE,
+                optional: false,
+                nullable: false,
+                fabric_sensitive: true,
+            },
+        );
+        assert_parse_ok(
+            StructField::parse(
+                "optional nullable ExtensionFieldSet extensionFieldSets[] = 5;".into(),
+            ),
+            StructField {
+                field: Field {
+                    data_type: DataType::list_of("ExtensionFieldSet"),
+                    id: "extensionFieldSets",
+                    code: 5,
+                },
+                maturity: ApiMaturity::STABLE,
+                optional: true,
+                nullable: true,
+                fabric_sensitive: false,
+            },
+        );
     }
 
     #[test]

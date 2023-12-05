@@ -1061,7 +1061,7 @@ impl Idl<'_> {
         let (span, _) = whitespace0.parse(span).expect("Whitespace0 cannot fail");
 
         if !span.is_empty() {
-            return Err(format!("Not the entire file was parsed {:?}", span));
+            return Err(format!("Not the entire file was parsed {:?} {:?}", Cluster::parse(span), span));
         }
 
         Ok(idl)

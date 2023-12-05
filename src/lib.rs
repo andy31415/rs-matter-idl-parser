@@ -580,6 +580,7 @@ pub enum StructType {
 /// or responses (used as command outputs, have an id)
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Struct<'a> {
+    pub doc_comment: Option<&'a str>,
     pub struct_type: StructType,
     pub id: &'a str,
     pub fields: Vec<StructField<'a>>,
@@ -588,7 +589,8 @@ pub struct Struct<'a> {
 
 impl Struct<'_> {
     pub fn parse(span: Span) -> IResult<Span, Struct<'_>> {
-        let (span, _) = whitespace0.parse(span)?;
+        let (span, doc_comment) = whitespace0.parse(span)?;
+        let doc_comment = doc_comment.map(|DocComment(s)| s);
 
         let (span, struct_type) =
             opt(alt((tag_no_case("request"), tag_no_case("response"))))(span)?;
@@ -634,6 +636,7 @@ impl Struct<'_> {
         Ok((
             span,
             Struct {
+                doc_comment,
                 struct_type,
                 id,
                 fields,
@@ -676,10 +679,9 @@ pub fn event_priority(span: Span) -> IResult<Span, EventPriority> {
 }
 
 // TODO: events
-// event: event_qualities event_priority event_with_access "=" positive_integer "{" (struct_field ";")* "}"
+// event: event_qualities event_priority "event" event_access? "=" positive_integer "{" (struct_field ";")* "}"
 // event_qualities: event_quality*
 // event_quality: "fabric_sensitive" -> event_fabric_sensitive
-// event_with_access: "event" event_access? id
 // event_access: "access" "(" ("read" ":" access_privilege)? ")"
 
 #[cfg(test)]
@@ -741,6 +743,7 @@ mod tests {
                 .into(),
             ),
             Struct {
+                doc_comment: None,
                 struct_type: StructType::Regular,
                 id: "ExtensionFieldSet",
                 fields: vec![
@@ -780,6 +783,7 @@ mod tests {
                 .into(),
             ),
             Struct {
+                doc_comment: None,
                 struct_type: StructType::Request,
                 id: "TestEventTriggerRequest",
                 fields: vec![
@@ -813,6 +817,7 @@ mod tests {
         assert_parse_ok(
             Struct::parse(
                 "
+                 /** this tests responses */
                  response struct TimeSnapshotResponse = 2 {
                    systime_us systemTimeUs = 0;
                    nullable epoch_us UTCTimeUs = 1;
@@ -820,6 +825,7 @@ mod tests {
                 .into(),
             ),
             Struct {
+                doc_comment: Some(" this tests responses "),
                 struct_type: StructType::Response(2),
                 id: "TimeSnapshotResponse",
                 fields: vec![

@@ -997,43 +997,36 @@ impl Cluster<'_> {
             )
             .parse(span)
             {
-                eprintln!("REVISION: {:?}", revision);
                 cluster.revision = revision;
                 span = rest;
                 continue;
             }
             if let Ok((rest, b)) = Bitmap::parse(span) {
-                eprintln!("BITMAP: {:?}", b);
                 cluster.bitmaps.push(b);
                 span = rest;
                 continue;
             }
             if let Ok((rest, e)) = Enum::parse(span) {
-                eprintln!("ENUM: {:?}", e);
                 cluster.enums.push(e);
                 span = rest;
                 continue;
             }
             if let Ok((rest, s)) = Struct::parse(span) {
-                eprintln!("STRUCT: {:?}", s);
                 cluster.structs.push(s);
                 span = rest;
                 continue;
             }
             if let Ok((rest, a)) = Attribute::parse(span) {
-                eprintln!("ATTR: {:?}", a);
                 cluster.attributes.push(a);
                 span = rest;
                 continue;
             }
             if let Ok((rest, c)) = Command::parse(span) {
-                eprintln!("CMD: {:?}", c);
                 cluster.commands.push(c);
                 span = rest;
                 continue;
             }
             if let Ok((rest, e)) = Event::parse(span) {
-                eprintln!("EVENT: {:?}", e);
                 cluster.events.push(e);
                 span = rest;
                 continue;

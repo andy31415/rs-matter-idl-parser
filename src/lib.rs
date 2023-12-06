@@ -1164,7 +1164,8 @@ pub fn device_type(span: Span) -> IResult<Span, DeviceType> {
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum DefaultAttributeValue {
-    Number(i64),
+    Number(u64),
+    Signed(i64),
     String(String),
     Bool(bool),
 }
@@ -1179,12 +1180,12 @@ pub fn default_attribute_value(span: Span) -> IResult<Span, DefaultAttributeValu
 
     if let Ok((rest, n)) = positive_integer.parse(span) {
         // TODO: bitwise compare here may be rough
-        return Ok((rest, DefaultAttributeValue::Number(n as i64)));
+        return Ok((rest, DefaultAttributeValue::Number(n)));
     }
 
     // at this point there is a default.
     if let Ok((rest, n)) = nom::character::complete::i64::<_, ()>.parse(span) {
-        return Ok((rest, DefaultAttributeValue::Number(n)));
+        return Ok((rest, DefaultAttributeValue::Signed(n)));
     }
 
     if let Ok((rest, _)) = tag_no_case::<_, _, ()>("true").parse(span) {
@@ -1528,8 +1529,8 @@ mod tests {
     #[case(r#"default = "test""#, DefaultAttributeValue::String("test".into()))]
     #[case(r#"default = "test\\test""#, DefaultAttributeValue::String("test\\test".into()))]
     #[case("default = \"escaped\\\\and quote\\\"\"", DefaultAttributeValue::String("escaped\\and quote\"".into()))]
-    #[case("default = -1", DefaultAttributeValue::Number(-1))]
-    #[case("default = -100", DefaultAttributeValue::Number(-100))]
+    #[case("default = -1", DefaultAttributeValue::Signed(-1))]
+    #[case("default = -100", DefaultAttributeValue::Signed(-100))]
     #[case("default = true", DefaultAttributeValue::Bool(true))]
     #[case("default = false", DefaultAttributeValue::Bool(false))]
     fn test_parse_default_attribute_value(

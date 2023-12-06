@@ -1017,14 +1017,13 @@ pub struct Cluster<'a> {
 
 impl<'a> Cluster<'a> {
     fn parse_member<'b: 'a, 'c>(&'c mut self, span: Span<'b>) -> Option<Span<'b>> {
-        let (span, (doc_comment, maturity,_)) = 
-             tuple((
-                whitespace0.map(|o| o.map(|DocComment(s)| s)),
-                api_maturity,
-                whitespace0
-             ))
-            .parse(span)
-            .ok()?;
+        let (span, (doc_comment, maturity, _)) = tuple((
+            whitespace0.map(|o| o.map(|DocComment(s)| s)),
+            api_maturity,
+            whitespace0,
+        ))
+        .parse(span)
+        .ok()?;
 
         if let Ok((rest, revision)) = delimited(
             tuple((tag_no_case("revision"), whitespace1)),
@@ -1123,7 +1122,7 @@ pub struct IdlParsingError {
     #[source_code]
     pub src: NamedSource,
 
-    #[label("Cluster that failed to parse")]
+    #[label("Top-level element that failed to parse")]
     pub cluster_pos: SourceSpan,
 
     #[label("Parse error location")]

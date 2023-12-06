@@ -210,22 +210,17 @@ pub fn whitespace_group(span: Span) -> IResult<Span, Whitespace<'_>> {
 /// assert_eq!(result.1, None);
 /// ```
 pub fn whitespace0(span: Span) -> IResult<Span, Option<DocComment>> {
-    let mut doc: Option<DocComment> = None;
-
-    let mut parsed = match whitespace_group(span) {
+    let (mut rest, mut doc) = match whitespace_group(span) {
         Err(_) => return Ok((span, None)),
-        Ok(value) => value,
+        Ok((span, Whitespace::DocComment(c))) => (span, Some(DocComment(c))),
+        Ok((span, _)) => (span, None),
     };
-
-    if let Whitespace::DocComment(comment) = parsed.1 {
-        doc = Some(DocComment(comment))
-    }
 
     // now consume all other results if any
     loop {
-        match whitespace_group(parsed.0) {
+        match whitespace_group(rest) {
             Ok((span, whitespace)) => {
-                parsed = (span, whitespace);
+                rest = span;
                 match whitespace {
                     Whitespace::DocComment(comment) => doc = Some(DocComment(comment)),
                     Whitespace::CComment(_) => doc = None,
@@ -233,7 +228,7 @@ pub fn whitespace0(span: Span) -> IResult<Span, Option<DocComment>> {
                     Whitespace::Whitespace(_) => {}
                 }
             }
-            Err(_) => return Ok((parsed.0, doc)),
+            Err(_) => return Ok((rest, doc)),
         }
     }
 }

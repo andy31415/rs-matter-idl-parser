@@ -51,10 +51,10 @@ pub enum ApiMaturity {
 /// ```
 pub fn api_maturity(span: Span) -> IResult<Span, ApiMaturity> {
     let specified: IResult<Span, ApiMaturity> = alt((
-        map(tag_no_case("stable"), |_| ApiMaturity::STABLE),
-        map(tag_no_case("provisional"), |_| ApiMaturity::PROVISIONAL),
-        map(tag_no_case("internal"), |_| ApiMaturity::INTERNAL),
-        map(tag_no_case("deprecated"), |_| ApiMaturity::DEPRECATED),
+       value(ApiMaturity::STABLE,tag_no_case("stable")),
+       value(ApiMaturity::PROVISIONAL ,tag_no_case("provisional")),
+       value(ApiMaturity::INTERNAL ,tag_no_case("internal")),
+       value(ApiMaturity::DEPRECATED ,tag_no_case("deprecated")),
     ))(span);
 
     // This actually cannot fail

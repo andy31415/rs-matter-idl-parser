@@ -636,9 +636,15 @@ impl Struct<'_> {
 
         let is_fabric_scoped = attributes.contains("fabric_scoped");
 
-        let (span, id) = tuple((tag_no_case("struct"), whitespace1, parse_id, whitespace0))
-            .map(|(_, _, id, _)| id)
-            .parse(span)?;
+        let (span, id) = tuple((
+            whitespace0,
+            tag_no_case("struct"),
+            whitespace1,
+            parse_id,
+            whitespace0,
+        ))
+        .map(|(_, _, _, id, _)| id)
+        .parse(span)?;
 
         let (span, struct_type) = match struct_type {
             Some("request") => (span, StructType::Request),
@@ -1501,6 +1507,49 @@ mod tests {
                     },
                 ],
                 is_fabric_scoped: false,
+            },
+        );
+
+        assert_parse_ok(
+            Struct::parse(
+                "fabric_scoped struct ProviderLocation {
+                   node_id providerNodeID = 1;
+                   endpoint_no endpoint = 2;
+                   fabric_idx fabricIndex = 254;
+                 }"
+                .into(),
+            ),
+            Struct {
+                doc_comment: None,
+                struct_type: StructType::Regular,
+                id: "ProviderLocation",
+                fields: vec![
+                    StructField {
+                        field: Field {
+                            data_type: DataType::scalar("node_id"),
+                            id: "providerNodeID",
+                            code: 1,
+                        },
+                        ..Default::default()
+                    },
+                    StructField {
+                        field: Field {
+                            data_type: DataType::scalar("endpoint_no"),
+                            id: "endpoint",
+                            code: 2,
+                        },
+                        ..Default::default()
+                    },
+                    StructField {
+                        field: Field {
+                            data_type: DataType::scalar("fabric_idx"),
+                            id: "fabricIndex",
+                            code: 254,
+                        },
+                        ..Default::default()
+                    },
+                ],
+                is_fabric_scoped: true,
             },
         );
     }

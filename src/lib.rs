@@ -693,12 +693,17 @@ pub enum AccessPrivilege {
 }
 
 pub fn access_privilege(span: Span) -> IResult<Span, AccessPrivilege> {
-    alt((
-        value(AccessPrivilege::View, tag_no_case("view")),
-        value(AccessPrivilege::Operate, tag_no_case("operate")),
-        value(AccessPrivilege::Manage, tag_no_case("manage")),
-        value(AccessPrivilege::Administer, tag_no_case("administer")),
-    ))(span)
+    if let Ok((span, _)) = tag_no_case::<_, _, ()>("view").parse(span) {
+        return Ok((span, AccessPrivilege::View));
+    }
+    if let Ok((span, _)) = tag_no_case::<_, _, ()>("operate").parse(span) {
+        return Ok((span, AccessPrivilege::Operate));
+    }
+    if let Ok((span, _)) = tag_no_case::<_, _, ()>("manage").parse(span) {
+        return Ok((span, AccessPrivilege::Manage));
+    }
+
+    value(AccessPrivilege::Administer, tag_no_case("administer")).parse(span)
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

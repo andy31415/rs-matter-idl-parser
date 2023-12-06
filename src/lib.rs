@@ -163,7 +163,7 @@ pub enum Whitespace<'a> {
 ///
 /// returns the content of the comment
 pub fn whitespace_group(span: Span) -> IResult<Span, Whitespace<'_>> {
-    // NOTE: split into cases intentionall. Using an ALT pattern here
+    // NOTE: split into cases intentional. Using an ALT pattern here
     //       seems to slow down things a lot.
 
     // C-style comment, output thrown away
@@ -213,6 +213,13 @@ pub fn whitespace_group(span: Span) -> IResult<Span, Whitespace<'_>> {
 /// assert_eq!(result.1, None);
 /// ```
 pub fn whitespace0(span: Span) -> IResult<Span, Option<DocComment>> {
+    // early bail out if it cannot be whitespace
+    // Whitespace is only tab/newline/space or `/` for cpp/c comments
+    match span.chars().next() {
+        Some('\r'|'\n'|'\t'|' '|'/') => (),
+        _ => return Ok((span, None)),
+    }
+
     let (mut rest, mut doc) = match whitespace_group(span) {
         Err(_) => return Ok((span, None)),
         Ok((span, Whitespace::DocComment(c))) => (span, Some(DocComment(c))),

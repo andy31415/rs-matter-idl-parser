@@ -363,14 +363,18 @@ pub struct Enum<'a> {
     pub entries: Vec<ConstantEntry<'a>>,
 }
 
-impl<'a> Enum<'a> {
+impl Enum<'_> {
     pub fn parse(span: Span) -> IResult<Span, Enum<'_>> {
         let (span, comment) = whitespace0(span)?;
         let doc_comment = comment.map(|DocComment(comment)| comment);
         let (span, maturity) = tuple((api_maturity, whitespace0))
             .map(|(m, _)| m)
             .parse(span)?;
+        
+        Enum::parse_after_doc_maturity(doc_comment, maturity, span)
+    }
 
+    pub fn parse_after_doc_maturity<'a: 'c, 'b: 'c, 'c>(doc_comment: Option<&'a str>, maturity: ApiMaturity, span: Span<'b>) -> IResult<Span<'b>, Enum<'c>> {
         tuple((
             tag_no_case("enum"),
             whitespace1,
@@ -403,14 +407,18 @@ pub struct Bitmap<'a> {
     pub entries: Vec<ConstantEntry<'a>>,
 }
 
-impl<'a> Bitmap<'a> {
+impl Bitmap<'_> {
     pub fn parse(span: Span) -> IResult<Span, Bitmap<'_>> {
         let (span, comment) = whitespace0(span)?;
         let doc_comment = comment.map(|DocComment(comment)| comment);
         let (span, maturity) = tuple((api_maturity, whitespace0))
             .map(|(m, _)| m)
             .parse(span)?;
+        
+        Bitmap::parse_after_doc_maturity(doc_comment, maturity, span)
+    }
 
+    pub fn parse_after_doc_maturity<'a: 'c, 'b: 'c, 'c>(doc_comment: Option<&'a str>, maturity: ApiMaturity, span: Span<'b>) -> IResult<Span<'b>, Bitmap<'c>> {
         tuple((
             tag_no_case("bitmap"),
             whitespace1,
@@ -615,6 +623,7 @@ pub enum StructType {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Struct<'a> {
     pub doc_comment: Option<&'a str>,
+    pub maturity: ApiMaturity,
     pub struct_type: StructType,
     pub id: &'a str,
     pub fields: Vec<StructField<'a>>,
@@ -625,7 +634,14 @@ impl Struct<'_> {
     pub fn parse(span: Span) -> IResult<Span, Struct<'_>> {
         let (span, doc_comment) = whitespace0.parse(span)?;
         let doc_comment = doc_comment.map(|DocComment(s)| s);
+        let (span, maturity) = tuple((api_maturity, whitespace0))
+            .map(|(m, _)| m)
+            .parse(span)?;
 
+        Self::parse_after_doc_maturity(doc_comment, maturity, span)
+    }
+
+    pub fn parse_after_doc_maturity<'a: 'c, 'b: 'c, 'c>(doc_comment: Option<&'a str>, maturity: ApiMaturity, span: Span<'b>) -> IResult<Span<'b>, Struct<'c>> {
         let (span, struct_type) =
             opt(alt((tag_no_case("request"), tag_no_case("response"))))(span)?;
         let struct_type = struct_type.map(|f| *f.fragment());
@@ -660,6 +676,7 @@ impl Struct<'_> {
             span,
             Struct {
                 doc_comment,
+                maturity,
                 struct_type,
                 id,
                 fields,
@@ -718,11 +735,14 @@ impl Event<'_> {
     pub fn parse(span: Span) -> IResult<Span, Event<'_>> {
         let (span, doc_comment) = whitespace0.parse(span)?;
         let doc_comment = doc_comment.map(|DocComment(s)| s);
-
         let (span, maturity) = tuple((api_maturity, whitespace0))
             .map(|(m, _)| m)
             .parse(span)?;
+        
+        Self::parse_after_doc_maturity(doc_comment, maturity, span)
+    }
 
+    pub fn parse_after_doc_maturity<'a: 'c, 'b: 'c, 'c>(doc_comment: Option<&'a str>, maturity: ApiMaturity, span: Span<'b>) -> IResult<Span<'b>, Event<'c>> {
         let (span, attributes) = tags_set!("fabric_sensitive").parse(span)?;
         let is_fabric_sensitive = attributes.contains("fabric_sensitive");
 
@@ -810,6 +830,10 @@ impl Command<'_> {
             .map(|(m, _)| m)
             .parse(span)?;
 
+        Self::parse_after_doc_maturity(doc_comment, maturity, span)
+    }
+
+    pub fn parse_after_doc_maturity<'a: 'c, 'b: 'c, 'c>(doc_comment: Option<&'a str>, maturity: ApiMaturity, span: Span<'b>) -> IResult<Span<'b>, Command<'c>> {
         let (span, qualities) = tags_set!("timed", "fabric").parse(span)?;
 
         let is_timed = qualities.contains("timed");
@@ -943,6 +967,10 @@ impl Attribute<'_> {
             .map(|(m, _)| m)
             .parse(span)?;
 
+        Self::parse_after_doc_maturity(doc_comment, maturity, span)
+    }
+
+    pub fn parse_after_doc_maturity<'a: 'c, 'b: 'c, 'c>(doc_comment: Option<&'a str>, maturity: ApiMaturity, span: Span<'b>) -> IResult<Span<'b>, Attribute<'c>> {
         let (span, qualities) = tags_set!("readonly", "nosubscribe", "timedwrite").parse(span)?;
         let is_read_only = qualities.contains("readonly");
         let is_no_subscribe = qualities.contains("nosubscribe");
@@ -994,8 +1022,15 @@ pub struct Cluster<'a> {
 
 impl<'a> Cluster<'a> {
     fn parse_member<'b: 'a, 'c>(&'c mut self, span: Span<'b>) -> Option<Span<'b>> {
+        let (span, doc_comment) = whitespace0.parse(span).ok()?;
+        let doc_comment = doc_comment.map(|DocComment(s)| s);
+
+        let (span, maturity) = tuple((api_maturity, whitespace0))
+            .map(|(m, _)| m)
+            .parse(span).ok()?;
+
         if let Ok((rest, revision)) = delimited(
-            tuple((whitespace0, tag_no_case("revision"), whitespace1)),
+            tuple((tag_no_case("revision"), whitespace1)),
             positive_integer,
             tuple((whitespace0, tag(";"))),
         )
@@ -1004,27 +1039,28 @@ impl<'a> Cluster<'a> {
             self.revision = revision;
             return Some(rest);
         }
-        if let Ok((rest, b)) = Bitmap::parse(span) {
+        
+        if let Ok((rest, b)) = Bitmap::parse_after_doc_maturity(doc_comment, maturity, span) {
             self.bitmaps.push(b);
             return Some(rest);
         }
-        if let Ok((rest, e)) = Enum::parse(span) {
+        if let Ok((rest, e)) = Enum::parse_after_doc_maturity(doc_comment, maturity, span) {
             self.enums.push(e);
             return Some(rest);
         }
-        if let Ok((rest, s)) = Struct::parse(span) {
+        if let Ok((rest, s)) = Struct::parse_after_doc_maturity(doc_comment, maturity, span) {
             self.structs.push(s);
             return Some(rest);
         }
-        if let Ok((rest, a)) = Attribute::parse(span) {
+        if let Ok((rest, a)) = Attribute::parse_after_doc_maturity(doc_comment, maturity, span) {
             self.attributes.push(a);
             return Some(rest);
         }
-        if let Ok((rest, c)) = Command::parse(span) {
+        if let Ok((rest, c)) = Command::parse_after_doc_maturity(doc_comment, maturity, span) {
             self.commands.push(c);
             return Some(rest);
         }
-        if let Ok((rest, e)) = Event::parse(span) {
+        if let Ok((rest, e)) = Event::parse_after_doc_maturity(doc_comment, maturity, span) {
             self.events.push(e);
             return Some(rest);
         }
@@ -1390,6 +1426,7 @@ mod tests {
             ),
             Struct {
                 doc_comment: None,
+                maturity: ApiMaturity::STABLE,
                 struct_type: StructType::Regular,
                 id: "ExtensionFieldSet",
                 fields: vec![
@@ -1430,6 +1467,7 @@ mod tests {
             ),
             Struct {
                 doc_comment: None,
+                maturity: ApiMaturity::STABLE,
                 struct_type: StructType::Request,
                 id: "TestEventTriggerRequest",
                 fields: vec![
@@ -1464,7 +1502,7 @@ mod tests {
             Struct::parse(
                 "
                  /** this tests responses */
-                 response struct TimeSnapshotResponse = 2 {
+                 internal response struct TimeSnapshotResponse = 2 {
                    systime_us systemTimeUs = 0;
                    nullable epoch_us UTCTimeUs = 1;
                  }"
@@ -1472,6 +1510,7 @@ mod tests {
             ),
             Struct {
                 doc_comment: Some(" this tests responses "),
+                maturity: ApiMaturity::INTERNAL,
                 struct_type: StructType::Response(2),
                 id: "TimeSnapshotResponse",
                 fields: vec![
@@ -1521,6 +1560,7 @@ mod tests {
             ),
             Struct {
                 doc_comment: None,
+                maturity: ApiMaturity::STABLE,
                 struct_type: StructType::Regular,
                 id: "ProviderLocation",
                 fields: vec![

@@ -131,7 +131,10 @@ pub fn decimal_integer(span: Span) -> IResult<Span, u64> {
 pub fn positive_integer(span: Span) -> IResult<Span, u64> {
     // NOTE: orer is important so that
     // 0x123 is a hex not 0 followed by "x123"
-    alt((hex_integer, decimal_integer))(span)
+    if let Ok(r) = hex_integer.parse(span) {
+        return Ok(r);
+    }
+    decimal_integer.parse(span)
 }
 
 /// Represents a comment (i.e. something between `/** ... */`)

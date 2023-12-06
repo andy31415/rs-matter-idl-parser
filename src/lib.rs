@@ -367,9 +367,7 @@ impl Enum<'_> {
     pub fn parse(span: Span) -> IResult<Span, Enum<'_>> {
         let (span, comment) = whitespace0(span)?;
         let doc_comment = comment.map(|DocComment(comment)| comment);
-        let (span, maturity) = tuple((api_maturity, whitespace0))
-            .map(|(m, _)| m)
-            .parse(span)?;
+        let (span, maturity) = delimited(whitespace0, api_maturity, whitespace0).parse(span)?;
 
         Enum::parse_after_doc_maturity(doc_comment, maturity, span)
     }
@@ -415,9 +413,7 @@ impl Bitmap<'_> {
     pub fn parse(span: Span) -> IResult<Span, Bitmap<'_>> {
         let (span, comment) = whitespace0(span)?;
         let doc_comment = comment.map(|DocComment(comment)| comment);
-        let (span, maturity) = tuple((api_maturity, whitespace0))
-            .map(|(m, _)| m)
-            .parse(span)?;
+        let (span, maturity) = delimited(whitespace0, api_maturity, whitespace0).parse(span)?;
 
         Bitmap::parse_after_doc_maturity(doc_comment, maturity, span)
     }
@@ -569,9 +565,7 @@ pub struct StructField<'a> {
 
 impl StructField<'_> {
     pub fn parse(span: Span) -> IResult<Span, StructField<'_>> {
-        let (span, maturity) = tuple((whitespace0, api_maturity, whitespace0))
-            .map(|(_, m, _)| m)
-            .parse(span)?;
+        let (span, maturity) = delimited(whitespace0, api_maturity, whitespace0).parse(span)?;
 
         let (span, attributes) =
             tags_set!("optional", "nullable", "fabric_sensitive").parse(span)?;
@@ -598,16 +592,11 @@ impl StructField<'_> {
 fn struct_fields(span: Span) -> IResult<Span, Vec<StructField<'_>>> {
     delimited(
         tag("{"),
-        many0(
-            tuple((
-                whitespace0,
-                StructField::parse,
-                whitespace0,
-                tag(";"),
-                whitespace0,
-            ))
-            .map(|(_, f, _, _, _)| f),
-        ),
+        many0(delimited(
+            whitespace0,
+            StructField::parse,
+            tuple((whitespace0, tag(";"))),
+        )),
         tuple((whitespace0, tag("}"))),
     )
     .parse(span)
@@ -642,9 +631,7 @@ impl Struct<'_> {
     pub fn parse(span: Span) -> IResult<Span, Struct<'_>> {
         let (span, doc_comment) = whitespace0.parse(span)?;
         let doc_comment = doc_comment.map(|DocComment(s)| s);
-        let (span, maturity) = tuple((api_maturity, whitespace0))
-            .map(|(m, _)| m)
-            .parse(span)?;
+        let (span, maturity) = delimited(whitespace0, api_maturity, whitespace0).parse(span)?;
 
         Self::parse_after_doc_maturity(doc_comment, maturity, span)
     }
@@ -664,14 +651,11 @@ impl Struct<'_> {
 
         let is_fabric_scoped = attributes.contains("fabric_scoped");
 
-        let (span, id) = tuple((
-            whitespace0,
-            tag_no_case("struct"),
-            whitespace1,
+        let (span, id) = delimited(
+            tuple((whitespace0, tag_no_case("struct"), whitespace1)),
             parse_id,
             whitespace0,
-        ))
-        .map(|(_, _, _, id, _)| id)
+        )
         .parse(span)?;
 
         let (span, struct_type) = match struct_type {
@@ -747,9 +731,7 @@ impl Event<'_> {
     pub fn parse(span: Span) -> IResult<Span, Event<'_>> {
         let (span, doc_comment) = whitespace0.parse(span)?;
         let doc_comment = doc_comment.map(|DocComment(s)| s);
-        let (span, maturity) = tuple((api_maturity, whitespace0))
-            .map(|(m, _)| m)
-            .parse(span)?;
+        let (span, maturity) = delimited(whitespace0, api_maturity, whitespace0).parse(span)?;
 
         Self::parse_after_doc_maturity(doc_comment, maturity, span)
     }
@@ -763,46 +745,41 @@ impl Event<'_> {
         let is_fabric_sensitive = attributes.contains("fabric_sensitive");
 
         tuple((
-            whitespace0,
-            event_priority,
+            preceded(whitespace0, event_priority),
             whitespace1,
             tag_no_case("event"),
             whitespace1,
-            opt(tuple((
-                tag_no_case("access"),
-                whitespace0,
-                tag("("),
-                whitespace0,
-                tag_no_case("read"),
-                tag(":"),
-                whitespace0,
+            opt(delimited(
+                tuple((
+                    tag_no_case("access"),
+                    whitespace0,
+                    tag("("),
+                    whitespace0,
+                    tag_no_case("read"),
+                    tag(":"),
+                    whitespace0,
+                )),
                 access_privilege,
-                whitespace0,
-                tag(")"),
+                tuple((whitespace0, tag(")"))),
             ))
-            .map(|(_, _, _, _, _, _, _, p, _, _)| p))
             .map(|p| p.unwrap_or(AccessPrivilege::View)),
-            whitespace0,
-            parse_id,
-            whitespace0,
-            tag("="),
-            whitespace0,
-            positive_integer,
-            whitespace0,
-            struct_fields,
+            preceded(whitespace0, parse_id),
+            preceded(
+                tuple((whitespace0, tag("="), whitespace0)),
+                positive_integer,
+            ),
+            preceded(whitespace0, struct_fields),
         ))
-        .map(
-            |(_, priority, _, _, _, access, _, id, _, _, _, code, _, fields)| Event {
-                doc_comment,
-                maturity,
-                priority,
-                access,
-                id,
-                code,
-                fields,
-                is_fabric_sensitive,
-            },
-        )
+        .map(|(priority, _, _, _, access, id, code, fields)| Event {
+            doc_comment,
+            maturity,
+            priority,
+            access,
+            id,
+            code,
+            fields,
+            is_fabric_sensitive,
+        })
         .parse(span)
     }
 }
@@ -841,10 +818,7 @@ impl Command<'_> {
     pub fn parse(span: Span) -> IResult<Span, Command<'_>> {
         let (span, doc_comment) = whitespace0.parse(span)?;
         let doc_comment = doc_comment.map(|DocComment(s)| s);
-
-        let (span, maturity) = tuple((api_maturity, whitespace0))
-            .map(|(m, _)| m)
-            .parse(span)?;
+        let (span, maturity) = delimited(whitespace0, api_maturity, whitespace0).parse(span)?;
 
         Self::parse_after_doc_maturity(doc_comment, maturity, span)
     }
@@ -982,10 +956,7 @@ impl Attribute<'_> {
     pub fn parse(span: Span) -> IResult<Span, Attribute<'_>> {
         let (span, doc_comment) = whitespace0.parse(span)?;
         let doc_comment = doc_comment.map(|DocComment(s)| s);
-
-        let (span, maturity) = tuple((api_maturity, whitespace0))
-            .map(|(m, _)| m)
-            .parse(span)?;
+        let (span, maturity) = delimited(whitespace0, api_maturity, whitespace0).parse(span)?;
 
         Self::parse_after_doc_maturity(doc_comment, maturity, span)
     }
@@ -1046,11 +1017,12 @@ pub struct Cluster<'a> {
 
 impl<'a> Cluster<'a> {
     fn parse_member<'b: 'a, 'c>(&'c mut self, span: Span<'b>) -> Option<Span<'b>> {
-        let (span, doc_comment) = whitespace0.parse(span).ok()?;
-        let doc_comment = doc_comment.map(|DocComment(s)| s);
-
-        let (span, maturity) = tuple((api_maturity, whitespace0))
-            .map(|(m, _)| m)
+        let (span, (doc_comment, maturity,_)) = 
+             tuple((
+                whitespace0.map(|o| o.map(|DocComment(s)| s)),
+                api_maturity,
+                whitespace0
+             ))
             .parse(span)
             .ok()?;
 

@@ -216,7 +216,7 @@ pub fn whitespace0(span: Span) -> IResult<Span, Option<DocComment>> {
     // early bail out if it cannot be whitespace
     // Whitespace is only tab/newline/space or `/` for cpp/c comments
     match span.chars().next() {
-        Some('\r'|'\n'|'\t'|' '|'/') => (),
+        Some('\r' | '\n' | '\t' | ' ' | '/') => (),
         _ => return Ok((span, None)),
     }
 

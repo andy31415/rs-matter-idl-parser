@@ -160,6 +160,9 @@ pub enum Whitespace<'a> {
 ///
 /// returns the content of the comment
 pub fn whitespace_group(span: Span) -> IResult<Span, Whitespace<'_>> {
+    // NOTE: split into cases intentionall. Using an ALT pattern here
+    //       seems to slow down things a lot.
+
     // C-style comment, output thrown away
     if let Ok((span, c)) = preceded(tag::<_, _, ()>("//"), is_not("\n\r")).parse(span) {
         return Ok((span, Whitespace::CComment(c.fragment())));

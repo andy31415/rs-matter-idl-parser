@@ -1164,8 +1164,9 @@ pub fn device_type(span: Span) -> IResult<Span, DeviceType> {
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub enum DefaultAttributeValue {
-    Number(u64),
+    Number(i64),
     String(String),
+    Bool(bool),
 }
 
 /// Parses a default attribute value.
@@ -1176,9 +1177,22 @@ pub fn default_attribute_value(span: Span) -> IResult<Span, DefaultAttributeValu
     let (span, _) =
         tuple((tag_no_case("default"), whitespace0, tag("="), whitespace0)).parse(span)?;
 
-    // at this point there is a default.
     if let Ok((rest, n)) = positive_integer.parse(span) {
+        // TODO: bitwise compare here may be rough
+        return Ok((rest, DefaultAttributeValue::Number(n as i64)));
+    }
+
+    // at this point there is a default.
+    if let Ok((rest, n)) = nom::character::complete::i64::<_, ()>.parse(span) {
         return Ok((rest, DefaultAttributeValue::Number(n)));
+    }
+
+    if let Ok((rest, _)) = tag_no_case::<_, _, ()>("true").parse(span) {
+        return Ok((rest, DefaultAttributeValue::Bool(true)));
+    }
+
+    if let Ok((rest, _)) = tag_no_case::<_, _, ()>("false").parse(span) {
+        return Ok((rest, DefaultAttributeValue::Bool(false)));
     }
 
     // remove prefix and parse
@@ -1273,13 +1287,129 @@ pub struct ClusterInstantiation<'a> {
     pub name: &'a str,
     pub attributes: Vec<AttributeInstantiation<'a>>,
     pub commands: Vec<&'a str>,
+    pub events: Vec<&'a str>,
+}
+
+pub fn cluster_instantiation(span: Span) -> IResult<Span, ClusterInstantiation<'_>> {
+    let (mut span, name) = parse_id
+        .preceded_by(tuple((
+            whitespace0,
+            tag_no_case("server"),
+            whitespace1,
+            tag_no_case("cluster"),
+            whitespace1,
+        )))
+        .terminated(tuple((whitespace0, tag("{"))))
+        .parse(span)?;
+
+    let mut attributes = Vec::new();
+    let mut commands = Vec::new();
+    let mut events = Vec::new();
+
+    loop {
+        let (mut rest, _) = whitespace0.parse(span)?;
+
+        if let Ok((tail, a)) = attribute_instantiation(rest) {
+            attributes.push(a);
+            rest = tail;
+        } else if let Ok((tail, cmd)) = parse_id
+            .preceded_by(tuple((
+                tag_no_case("handle"),
+                whitespace1,
+                tag_no_case("command"),
+                whitespace1,
+            )))
+            .terminated(tuple((whitespace0, tag(";"))))
+            .parse(rest)
+        {
+            commands.push(cmd);
+            rest = tail;
+        } else if let Ok((tail, e)) = parse_id
+            .preceded_by(tuple((
+                tag_no_case("emits"),
+                whitespace1,
+                tag_no_case("event"),
+                whitespace1,
+            )))
+            .terminated(tuple((whitespace0, tag(";"))))
+            .parse(rest)
+        {
+            events.push(e);
+            rest = tail;
+        } else {
+            break;
+        }
+        span = rest;
+    }
+    value(
+        ClusterInstantiation {
+            name,
+            attributes,
+            commands,
+            events,
+        },
+        tuple((whitespace0, tag("}"))),
+    )
+    .parse(span)
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
 pub struct Endpoint<'a> {
-    id: u32,
+    id: u64,
     device_types: Vec<DeviceType<'a>>,
-    instantiations: ClusterInstantiation<'a>,
+    bindings: Vec<&'a str>,
+    instantiations: Vec<ClusterInstantiation<'a>>,
+}
+
+pub fn endpoint(span: Span) -> IResult<Span, Endpoint<'_>> {
+    let (mut span, id) = positive_integer
+        .preceded_by(tuple((whitespace0, tag_no_case("endpoint"), whitespace1)))
+        .terminated(tuple((whitespace0, tag("{"))))
+        .parse(span)?;
+
+    let mut device_types = Vec::new();
+    let mut instantiations = Vec::new();
+    let mut bindings = Vec::new();
+
+    loop {
+        // eat any whitespace, then try to parse some content
+        let (rest, _) = whitespace0.parse(span)?;
+
+        if let Ok((tail, dt)) = device_type.parse(rest) {
+            device_types.push(dt);
+            span = tail;
+        } else if let Ok((tail, b)) = parse_id
+            .preceded_by(tuple((
+                whitespace0,
+                tag_no_case("binding"),
+                whitespace1,
+                tag_no_case("cluster"),
+                whitespace1,
+            )))
+            .terminated(tuple((whitespace0, tag(";"))))
+            .parse(rest)
+        {
+            bindings.push(b);
+            span = tail;
+        } else if let Ok((tail, ci)) = cluster_instantiation(rest) {
+            instantiations.push(ci);
+            span = tail;
+        } else {
+            span = rest;
+            break;
+        }
+    }
+
+    value(
+        Endpoint {
+            id,
+            device_types,
+            instantiations,
+            bindings,
+        },
+        tuple((whitespace0, tag("}"))),
+    )
+    .parse(span)
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
@@ -1310,9 +1440,16 @@ impl Idl<'_> {
         let mut idl = Idl::default();
 
         let mut span = input;
-        while let Ok((rest, cluster)) = Cluster::parse(span) {
-            idl.clusters.push(cluster);
-            span = rest;
+        loop {
+            if let Ok((rest, cluster)) = Cluster::parse(span) {
+                idl.clusters.push(cluster);
+                span = rest;
+            } else if let Ok((rest, ep)) = endpoint.parse(span) {
+                idl.endpoints.push(ep);
+                span = rest;
+            } else {
+                break;
+            }
         }
 
         let (span, _) = whitespace0.parse(span).expect("Whitespace0 cannot fail");

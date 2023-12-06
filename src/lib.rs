@@ -1528,6 +1528,10 @@ mod tests {
     #[case(r#"default = "test""#, DefaultAttributeValue::String("test".into()))]
     #[case(r#"default = "test\\test""#, DefaultAttributeValue::String("test\\test".into()))]
     #[case("default = \"escaped\\\\and quote\\\"\"", DefaultAttributeValue::String("escaped\\and quote\"".into()))]
+    #[case("default = -1", DefaultAttributeValue::Number(-1))]
+    #[case("default = -100", DefaultAttributeValue::Number(-100))]
+    #[case("default = true", DefaultAttributeValue::Bool(true))]
+    #[case("default = false", DefaultAttributeValue::Bool(false))]
     fn test_parse_default_attribute_value(
         #[case] input: &str,
         #[case] expected: DefaultAttributeValue,

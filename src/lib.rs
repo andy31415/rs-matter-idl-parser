@@ -50,20 +50,20 @@ pub enum ApiMaturity {
 /// assert_eq!(result.1, ApiMaturity::PROVISIONAL);
 /// ```
 pub fn api_maturity(span: Span) -> IResult<Span, ApiMaturity> {
-    let specified: IResult<Span, ApiMaturity> = alt((
-       value(ApiMaturity::STABLE,tag_no_case("stable")),
-       value(ApiMaturity::PROVISIONAL ,tag_no_case("provisional")),
-       value(ApiMaturity::INTERNAL ,tag_no_case("internal")),
-       value(ApiMaturity::DEPRECATED ,tag_no_case("deprecated")),
-    ))(span);
-
-    // This actually cannot fail
-    if specified.is_err() {
-        // Do not consume anything, return stable if not specified
+    if let Ok((span, _)) = tag_no_case::<_, _, ()>("stable").parse(span) {
         return Ok((span, ApiMaturity::STABLE));
     }
+    if let Ok((span, _)) = tag_no_case::<_, _, ()>("provisional").parse(span) {
+        return Ok((span, ApiMaturity::PROVISIONAL));
+    }
+    if let Ok((span, _)) = tag_no_case::<_, _, ()>("internal").parse(span) {
+        return Ok((span, ApiMaturity::INTERNAL));
+    }
+    if let Ok((span, _)) = tag_no_case::<_, _, ()>("deprecated").parse(span) {
+        return Ok((span, ApiMaturity::DEPRECATED));
+    }
 
-    specified
+    return Ok((span, ApiMaturity::STABLE));
 }
 
 /// Parses a hex-formated integer

@@ -1,4 +1,4 @@
-use std::{collections::HashSet};
+use std::collections::HashSet;
 
 use miette::{Diagnostic, NamedSource, SourceSpan};
 use nom::{
@@ -1190,14 +1190,19 @@ pub fn default_attribute_value(span: Span) -> IResult<Span, DefaultAttributeValu
     loop {
         let (rest, data) = take_while(|c| c != '\"' && c != '\\').parse(span)?;
         let data = *data.fragment();
+
         result.push_str(data);
 
         // reached an end. MUST be quote or backslash
         let (rest, ch) = one_of("\"\\").parse(rest)?;
 
         match ch {
-            '\\' => (),   // escaped tag
-            '"' => break, // string end
+            '\\' => (), // escaped tag
+            '"' => {
+                // string end
+                span = rest;
+                break;
+            }
             _ => panic!("Not expected!"),
         }
 
@@ -1248,6 +1253,21 @@ pub struct AttributeInstantiation<'a> {
     pub default: Option<DefaultAttributeValue>,
 }
 
+pub fn attribute_instantiation(span: Span) -> IResult<Span, AttributeInstantiation> {
+    tuple((
+        attribute_handling_type,
+        parse_id.preceded_by(tuple((whitespace1, tag_no_case("attribute"), whitespace1))),
+        opt(default_attribute_value.preceded_by(whitespace1)),
+    ))
+    .terminated(tuple((whitespace0, tag(";"))))
+    .map(|(handle_type, name, default)| AttributeInstantiation {
+        handle_type,
+        name,
+        default,
+    })
+    .parse(span)
+}
+
 #[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
 pub struct ClusterInstantiation<'a> {
     pub name: &'a str,
@@ -1286,7 +1306,6 @@ pub struct IdlParsingError {
 }
 
 impl Idl<'_> {
-    // TODO: better errors
     pub fn parse(input: Span) -> Result<Idl, IdlParsingError> {
         let mut idl = Idl::default();
 
@@ -1330,11 +1349,45 @@ mod tests {
         let actual = parsed.expect("Parse should have succeeded").1;
         assert_eq!(actual, expected);
     }
+    #[rstest]
+    #[case("ram      attribute description default = \"B3\";",
+           AttributeInstantiation{
+               handle_type: AttributeHandlingType::Ram,
+               name: "description",
+               default: Some(DefaultAttributeValue::String("B3".into())),
+           })]
+    #[case(
+        "ram      attribute batChargeLevel default = 0x123;",
+        AttributeInstantiation{
+               handle_type: AttributeHandlingType::Ram,
+               name: "batChargeLevel",
+               default: Some(DefaultAttributeValue::Number(0x123)),
+           })]
+    #[case(
+        "ram      attribute batReplacementNeeded;",
+        AttributeInstantiation{
+               handle_type: AttributeHandlingType::Ram,
+               name: "batReplacementNeeded",
+               default: None,
+         })]
+    #[case("callback attribute endpointList;",
+           AttributeInstantiation{
+               handle_type: AttributeHandlingType::Callback,
+               name: "endpointList",
+               default: None,
+         })]
+    fn test_parse_attribute_instantiation(
+        #[case] input: &str,
+        #[case] expected: AttributeInstantiation<'_>,
+    ) {
+        assert_parse_ok(attribute_instantiation(input.into()), expected);
+    }
 
     #[rstest]
     #[case("default = 1", DefaultAttributeValue::Number(1))]
     #[case("default = 0x1234abcd", DefaultAttributeValue::Number(0x1234abcd))]
     #[case(r#"default = """#, DefaultAttributeValue::String("".into()))]
+    #[case("default = \"B3\"", DefaultAttributeValue::String("B3".into()))]
     #[case(r#"default = "test""#, DefaultAttributeValue::String("test".into()))]
     #[case(r#"default = "test\\test""#, DefaultAttributeValue::String("test\\test".into()))]
     #[case("default = \"escaped\\\\and quote\\\"\"", DefaultAttributeValue::String("escaped\\and quote\"".into()))]
@@ -1342,8 +1395,6 @@ mod tests {
         #[case] input: &str,
         #[case] expected: DefaultAttributeValue,
     ) {
-        eprintln!("FROM {:?}", input);
-        eprintln!("TO   {:?}", expected);
         assert_parse_ok(default_attribute_value(input.into()), expected);
     }
 

@@ -1,10 +1,10 @@
-use std::{any, collections::HashSet};
+use std::{collections::HashSet};
 
 use miette::{Diagnostic, NamedSource, SourceSpan};
 use nom::{
     branch::alt,
     bytes::complete::{is_not, tag, tag_no_case, take_until, take_while, take_while1},
-    character::complete::{hex_digit1, multispace1, none_of, one_of},
+    character::complete::{hex_digit1, multispace1, one_of},
     combinator::{map, map_res, opt, recognize, value},
     error::{Error as NomError, ErrorKind},
     multi::{many0, many1, separated_list0},

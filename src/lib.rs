@@ -370,11 +370,15 @@ impl Enum<'_> {
         let (span, maturity) = tuple((api_maturity, whitespace0))
             .map(|(m, _)| m)
             .parse(span)?;
-        
+
         Enum::parse_after_doc_maturity(doc_comment, maturity, span)
     }
 
-    pub fn parse_after_doc_maturity<'a: 'c, 'b: 'c, 'c>(doc_comment: Option<&'a str>, maturity: ApiMaturity, span: Span<'b>) -> IResult<Span<'b>, Enum<'c>> {
+    pub fn parse_after_doc_maturity<'a: 'c, 'b: 'c, 'c>(
+        doc_comment: Option<&'a str>,
+        maturity: ApiMaturity,
+        span: Span<'b>,
+    ) -> IResult<Span<'b>, Enum<'c>> {
         tuple((
             tag_no_case("enum"),
             whitespace1,
@@ -414,11 +418,15 @@ impl Bitmap<'_> {
         let (span, maturity) = tuple((api_maturity, whitespace0))
             .map(|(m, _)| m)
             .parse(span)?;
-        
+
         Bitmap::parse_after_doc_maturity(doc_comment, maturity, span)
     }
 
-    pub fn parse_after_doc_maturity<'a: 'c, 'b: 'c, 'c>(doc_comment: Option<&'a str>, maturity: ApiMaturity, span: Span<'b>) -> IResult<Span<'b>, Bitmap<'c>> {
+    pub fn parse_after_doc_maturity<'a: 'c, 'b: 'c, 'c>(
+        doc_comment: Option<&'a str>,
+        maturity: ApiMaturity,
+        span: Span<'b>,
+    ) -> IResult<Span<'b>, Bitmap<'c>> {
         tuple((
             tag_no_case("bitmap"),
             whitespace1,
@@ -641,7 +649,11 @@ impl Struct<'_> {
         Self::parse_after_doc_maturity(doc_comment, maturity, span)
     }
 
-    pub fn parse_after_doc_maturity<'a: 'c, 'b: 'c, 'c>(doc_comment: Option<&'a str>, maturity: ApiMaturity, span: Span<'b>) -> IResult<Span<'b>, Struct<'c>> {
+    pub fn parse_after_doc_maturity<'a: 'c, 'b: 'c, 'c>(
+        doc_comment: Option<&'a str>,
+        maturity: ApiMaturity,
+        span: Span<'b>,
+    ) -> IResult<Span<'b>, Struct<'c>> {
         let (span, struct_type) =
             opt(alt((tag_no_case("request"), tag_no_case("response"))))(span)?;
         let struct_type = struct_type.map(|f| *f.fragment());
@@ -738,11 +750,15 @@ impl Event<'_> {
         let (span, maturity) = tuple((api_maturity, whitespace0))
             .map(|(m, _)| m)
             .parse(span)?;
-        
+
         Self::parse_after_doc_maturity(doc_comment, maturity, span)
     }
 
-    pub fn parse_after_doc_maturity<'a: 'c, 'b: 'c, 'c>(doc_comment: Option<&'a str>, maturity: ApiMaturity, span: Span<'b>) -> IResult<Span<'b>, Event<'c>> {
+    pub fn parse_after_doc_maturity<'a: 'c, 'b: 'c, 'c>(
+        doc_comment: Option<&'a str>,
+        maturity: ApiMaturity,
+        span: Span<'b>,
+    ) -> IResult<Span<'b>, Event<'c>> {
         let (span, attributes) = tags_set!("fabric_sensitive").parse(span)?;
         let is_fabric_sensitive = attributes.contains("fabric_sensitive");
 
@@ -833,7 +849,11 @@ impl Command<'_> {
         Self::parse_after_doc_maturity(doc_comment, maturity, span)
     }
 
-    pub fn parse_after_doc_maturity<'a: 'c, 'b: 'c, 'c>(doc_comment: Option<&'a str>, maturity: ApiMaturity, span: Span<'b>) -> IResult<Span<'b>, Command<'c>> {
+    pub fn parse_after_doc_maturity<'a: 'c, 'b: 'c, 'c>(
+        doc_comment: Option<&'a str>,
+        maturity: ApiMaturity,
+        span: Span<'b>,
+    ) -> IResult<Span<'b>, Command<'c>> {
         let (span, qualities) = tags_set!("timed", "fabric").parse(span)?;
 
         let is_timed = qualities.contains("timed");
@@ -970,7 +990,11 @@ impl Attribute<'_> {
         Self::parse_after_doc_maturity(doc_comment, maturity, span)
     }
 
-    pub fn parse_after_doc_maturity<'a: 'c, 'b: 'c, 'c>(doc_comment: Option<&'a str>, maturity: ApiMaturity, span: Span<'b>) -> IResult<Span<'b>, Attribute<'c>> {
+    pub fn parse_after_doc_maturity<'a: 'c, 'b: 'c, 'c>(
+        doc_comment: Option<&'a str>,
+        maturity: ApiMaturity,
+        span: Span<'b>,
+    ) -> IResult<Span<'b>, Attribute<'c>> {
         let (span, qualities) = tags_set!("readonly", "nosubscribe", "timedwrite").parse(span)?;
         let is_read_only = qualities.contains("readonly");
         let is_no_subscribe = qualities.contains("nosubscribe");
@@ -1027,7 +1051,8 @@ impl<'a> Cluster<'a> {
 
         let (span, maturity) = tuple((api_maturity, whitespace0))
             .map(|(m, _)| m)
-            .parse(span).ok()?;
+            .parse(span)
+            .ok()?;
 
         if let Ok((rest, revision)) = delimited(
             tuple((tag_no_case("revision"), whitespace1)),
@@ -1039,7 +1064,7 @@ impl<'a> Cluster<'a> {
             self.revision = revision;
             return Some(rest);
         }
-        
+
         if let Ok((rest, b)) = Bitmap::parse_after_doc_maturity(doc_comment, maturity, span) {
             self.bitmaps.push(b);
             return Some(rest);

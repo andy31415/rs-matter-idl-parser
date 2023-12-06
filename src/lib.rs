@@ -714,11 +714,15 @@ pub enum EventPriority {
 }
 
 pub fn event_priority(span: Span) -> IResult<Span, EventPriority> {
-    alt((
-        value(EventPriority::Critical, tag_no_case("critical")),
-        value(EventPriority::Info, tag_no_case("info")),
-        value(EventPriority::Debug, tag_no_case("debug")),
-    ))(span)
+    if let Ok((span, _)) = tag_no_case::<_, _, ()>("info").parse(span) {
+        return Ok((span, EventPriority::Info));
+    }
+
+    if let Ok((span, _)) = tag_no_case::<_, _, ()>("critical").parse(span) {
+        return Ok((span, EventPriority::Critical));
+    }
+
+    value(EventPriority::Debug, tag_no_case("debug")).parse(span)
 }
 
 /// An event structure inside the IDL

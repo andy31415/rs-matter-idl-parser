@@ -4,18 +4,16 @@ use rs_matter_idl_parser::Idl;
 
 pub fn criterion_benchmark(c: &mut Criterion) {
     c.bench_function("load example client clusters", |b| {
-        b.iter(
-            || match Idl::parse(black_box(include_str!("../sample-clusters.matter").into())) {
-                Err(e) => {
-                    let mut buf = String::new();
-                    GraphicalReportHandler::new()
-                        .render_report(&mut buf, &e)
-                        .unwrap();
-                    eprintln!("\n{}", buf);
-                }
-                _ => {}
-            },
-        )
+        b.iter(|| {
+            if let Err(e) = Idl::parse(black_box(include_str!("../sample-clusters.matter").into()))
+            {
+                let mut buf = String::new();
+                GraphicalReportHandler::new()
+                    .render_report(&mut buf, &e)
+                    .unwrap();
+                eprintln!("\n{}", buf);
+            }
+        })
     });
 }
 

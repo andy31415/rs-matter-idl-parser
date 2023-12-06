@@ -10,14 +10,11 @@ fn main() {
 // Define a `fibonacci` function and register it for benchmarking.
 #[divan::bench]
 fn parse_client_clusters() {
-    match Idl::parse(black_box(include_str!("../sample-clusters.matter").into())) {
-        Err(e) => {
-            let mut buf = String::new();
-            GraphicalReportHandler::new()
-                .render_report(&mut buf, &e)
-                .unwrap();
-            eprintln!("\n{}", buf);
-        }
-        _ => {}
+    if let Err(e) = Idl::parse(black_box(include_str!("../sample-clusters.matter").into())) {
+        let mut buf = String::new();
+        GraphicalReportHandler::new()
+            .render_report(&mut buf, &e)
+            .unwrap();
+        eprintln!("\n{}", buf);
     }
 }

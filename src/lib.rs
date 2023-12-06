@@ -12,6 +12,7 @@ use nom::{
     IResult, Parser,
 };
 use nom_locate::LocatedSpan;
+use nom_supreme::ParserExt;
 use thiserror::Error;
 
 // easier to type and not move str around
@@ -1125,9 +1126,96 @@ impl<'a> Cluster<'a> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+// Represents a specific device type
+#[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
+pub struct DeviceType<'a> {
+    pub name: &'a str,
+    pub code: u64,
+    pub version: u64,
+}
+
+/// parse a device type. Does NOT expect preceeding whitespace
+pub fn device_type(span: Span) -> IResult<Span, DeviceType> {
+    tuple((
+        parse_id.preceded_by(tuple((
+            tag_no_case("device"),
+            whitespace1,
+            tag_no_case("type"),
+            whitespace1,
+        ))),
+        positive_integer.preceded_by(tuple((whitespace0, tag("="), whitespace0))),
+        positive_integer
+            .preceded_by(tuple((
+                whitespace0,
+                tag(","),
+                whitespace0,
+                tag_no_case("version"),
+                whitespace0,
+            )))
+            .terminated(tuple((whitespace0, tag(";")))),
+    ))
+    .map(|(name, code, version)| DeviceType {
+        name,
+        code,
+        version,
+    })
+    .parse(span)
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+pub enum DefaultAttributeValue<'a> {
+    Number(u64),
+    String(&'a str),
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
+pub enum AttributeHandlingType {
+    #[default]
+    Ram,
+    Callback,
+    Persist,
+}
+
+pub fn attribute_handling_type(span: Span) -> IResult<Span, AttributeHandlingType> {
+    if let Ok(r) = value(AttributeHandlingType::Ram, tag_no_case::<_, _, ()>("ram")).parse(span) {
+        return Ok(r);
+    }
+    if let Ok(r) = value(
+        AttributeHandlingType::Callback,
+        tag_no_case::<_, _, ()>("callback"),
+    )
+    .parse(span)
+    {
+        return Ok(r);
+    }
+    value(AttributeHandlingType::Persist, tag_no_case("persist")).parse(span)
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
+pub struct AttributeInstantiation<'a> {
+    pub handle_type: AttributeHandlingType,
+    pub name: &'a str,
+    pub default: Option<DefaultAttributeValue<'a>>,
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
+pub struct ClusterInstantiation<'a> {
+    pub name: &'a str,
+    pub attributes: Vec<AttributeInstantiation<'a>>,
+    pub commands: Vec<&'a str>,
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
+pub struct Endpoint<'a> {
+    id: u32,
+    device_types: Vec<DeviceType<'a>>,
+    instantiations: ClusterInstantiation<'a>,
+}
+
+#[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
 pub struct Idl<'a> {
     pub clusters: Vec<Cluster<'a>>,
+    pub endpoints: Vec<Endpoint<'a>>,
 }
 
 #[derive(Error, Debug, Diagnostic)]
@@ -1182,6 +1270,7 @@ impl Idl<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
 
     fn remove_loc<O>(src: IResult<Span, O>) -> IResult<Span, O> {
         src.map(|(span, o)| ((*span.fragment()).into(), o))
@@ -1190,6 +1279,46 @@ mod tests {
     fn assert_parse_ok<R: PartialEq + std::fmt::Debug>(parsed: IResult<Span, R>, expected: R) {
         let actual = parsed.expect("Parse should have succeeded").1;
         assert_eq!(actual, expected);
+    }
+
+    #[rstest]
+    #[case(
+        "device type ma_rootdevice = 22, version 1;",
+        DeviceType {name: "ma_rootdevice", code: 22, version: 1}
+    )]
+    #[case(
+        "device type ma_powersource = 17, version 2;",
+            DeviceType {name: "ma_powersource", code: 17, version: 2}
+    )]
+    #[case(
+        "dEVICe tYPe
+           ma_secondary_network_commissioning = //large number on next line
+           0xFFF10002, version 0x123  /*test*/
+        ;
+        ",
+        DeviceType {name: "ma_secondary_network_commissioning", code: 0xfff10002 , version: 0x123}
+    )]
+    fn test_parse_device_type(#[case] input: &str, #[case] expected: DeviceType) {
+        // device type ma_rootdevice = 22, version 1;
+        assert_parse_ok(device_type(input.into()), expected);
+    }
+
+    #[test]
+    fn test_parse_attribute_handling() {
+        assert!(attribute_handling_type("xyz".into()).is_err());
+
+        assert_parse_ok(
+            attribute_handling_type("ram".into()),
+            AttributeHandlingType::Ram,
+        );
+        assert_parse_ok(
+            attribute_handling_type("persist".into()),
+            AttributeHandlingType::Persist,
+        );
+        assert_parse_ok(
+            attribute_handling_type("callback".into()),
+            AttributeHandlingType::Callback,
+        );
     }
 
     #[test]

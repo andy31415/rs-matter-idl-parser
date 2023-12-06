@@ -1562,6 +1562,44 @@ mod tests {
     }
 
     #[test]
+    fn test_cluster_instantiation() {
+        assert_parse_ok(
+            cluster_instantiation(
+                "
+                server cluster Test {
+                  emits event Foo;
+                  emits event Bar;
+
+                  callback attribute attributeList;
+                  ram      attribute clusterRevision default = 0x0002;
+
+                  handle command TestEventTrigger;
+                  handle command TimeSnapshot;
+                }
+        "
+                .into(),
+            ),
+            ClusterInstantiation {
+                name: "Test",
+                attributes: vec![
+                    AttributeInstantiation {
+                        handle_type: AttributeHandlingType::Callback,
+                        name: "attributeList",
+                        default: None,
+                    },
+                    AttributeInstantiation {
+                        handle_type: AttributeHandlingType::Ram,
+                        name: "clusterRevision",
+                        default: Some(DefaultAttributeValue::Number(2)),
+                    },
+                ],
+                commands: vec!["TestEventTrigger", "TimeSnapshot"],
+                events: vec!["Foo", "Bar"],
+            },
+        );
+    }
+
+    #[test]
     fn test_parse_attribute_handling() {
         assert!(attribute_handling_type("xyz".into()).is_err());
 

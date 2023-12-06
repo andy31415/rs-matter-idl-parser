@@ -1090,11 +1090,12 @@ impl<'a> Cluster<'a> {
 
         let (span, mut cluster) = delimited(
             tuple((
-                whitespace0,
-                opt(alt((tag_no_case("client"), tag_no_case("server")))),
-                whitespace0,
+                opt(tuple((
+                    alt((tag_no_case("client"), tag_no_case("server"))),
+                    whitespace1,
+                ))),
                 tag_no_case("cluster"),
-                whitespace0,
+                whitespace1,
             )),
             tuple((
                 parse_id,

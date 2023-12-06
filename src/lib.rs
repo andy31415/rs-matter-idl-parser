@@ -63,7 +63,7 @@ pub fn api_maturity(span: Span) -> IResult<Span, ApiMaturity> {
         return Ok((span, ApiMaturity::DEPRECATED));
     }
 
-    return Ok((span, ApiMaturity::STABLE));
+    Ok((span, ApiMaturity::STABLE))
 }
 
 /// Parses a hex-formated integer
@@ -185,7 +185,7 @@ pub fn whitespace_group(span: Span) -> IResult<Span, Whitespace<'_>> {
     }
 
     multispace1
-        .map(|c: Span| Whitespace::Whitespace(*c.fragment()))
+        .map(|c: Span| Whitespace::Whitespace(c.fragment()))
         .parse(span)
 }
 

@@ -533,14 +533,14 @@ macro_rules! tags_set {
                    Ok((p, _)) => element_start = p,
                    Err(_) => break,
                }
-           } 
-           
+           }
+
            $(
            if let Ok((tail, tag)) = nom::bytes::complete::tag_no_case::<_,_,()>($tags).parse(element_start) {
                rest = tail;
                result.insert(*tag.fragment());
                continue;
-           } else 
+           } else
            )+
            {
               break;

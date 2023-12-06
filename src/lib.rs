@@ -1,10 +1,10 @@
-use std::collections::HashSet;
+use std::{any, collections::HashSet};
 
 use miette::{Diagnostic, NamedSource, SourceSpan};
 use nom::{
     branch::alt,
     bytes::complete::{is_not, tag, tag_no_case, take_until, take_while, take_while1},
-    character::complete::{hex_digit1, multispace1, one_of},
+    character::complete::{hex_digit1, multispace1, none_of, one_of},
     combinator::{map, map_res, opt, recognize, value},
     error::{Error as NomError, ErrorKind},
     multi::{many0, many1, separated_list0},
@@ -1163,9 +1163,59 @@ pub fn device_type(span: Span) -> IResult<Span, DeviceType> {
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
-pub enum DefaultAttributeValue<'a> {
+pub enum DefaultAttributeValue {
     Number(u64),
-    String(&'a str),
+    String(String),
+}
+
+/// Parses a default attribute value.
+///
+/// Does NOT consume leading spaces or spaces after the value
+pub fn default_attribute_value(span: Span) -> IResult<Span, DefaultAttributeValue> {
+    // make sure we have some default before trying to parse
+    let (span, _) =
+        tuple((tag_no_case("default"), whitespace0, tag("="), whitespace0)).parse(span)?;
+
+    // at this point there is a default.
+    if let Ok((rest, n)) = positive_integer.parse(span) {
+        return Ok((rest, DefaultAttributeValue::Number(n)));
+    }
+
+    // remove prefix and parse
+    // This lengthy unescape logic is because I could not get
+    // nom escape/escape_transform to work
+    let (mut span, _) = tag("\"").parse(span)?;
+    let mut result = String::new();
+
+    loop {
+        let (rest, data) = take_while(|c| c != '\"' && c != '\\').parse(span)?;
+        let data = *data.fragment();
+        result.push_str(data);
+
+        // reached an end. MUST be quote or backslash
+        let (rest, ch) = one_of("\"\\").parse(rest)?;
+
+        match ch {
+            '\\' => (),   // escaped tag
+            '"' => break, // string end
+            _ => panic!("Not expected!"),
+        }
+
+        // unescape the next
+        let (rest, ch) = one_of(r#""\nrt"#)
+            .map(|c| match c {
+                '"' | '\\' => c,
+                'n' => '\n',
+                't' => '\t',
+                _ => panic!("Invalid escape"),
+            })
+            .parse(rest)?;
+
+        result.push(ch); // add the backslash
+        span = rest;
+    }
+
+    Ok((span, DefaultAttributeValue::String(result)))
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
@@ -1195,7 +1245,7 @@ pub fn attribute_handling_type(span: Span) -> IResult<Span, AttributeHandlingTyp
 pub struct AttributeInstantiation<'a> {
     pub handle_type: AttributeHandlingType,
     pub name: &'a str,
-    pub default: Option<DefaultAttributeValue<'a>>,
+    pub default: Option<DefaultAttributeValue>,
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
@@ -1282,6 +1332,22 @@ mod tests {
     }
 
     #[rstest]
+    #[case("default = 1", DefaultAttributeValue::Number(1))]
+    #[case("default = 0x1234abcd", DefaultAttributeValue::Number(0x1234abcd))]
+    #[case(r#"default = """#, DefaultAttributeValue::String("".into()))]
+    #[case(r#"default = "test""#, DefaultAttributeValue::String("test".into()))]
+    #[case(r#"default = "test\\test""#, DefaultAttributeValue::String("test\\test".into()))]
+    #[case("default = \"escaped\\\\and quote\\\"\"", DefaultAttributeValue::String("escaped\\and quote\"".into()))]
+    fn test_parse_default_attribute_value(
+        #[case] input: &str,
+        #[case] expected: DefaultAttributeValue,
+    ) {
+        eprintln!("FROM {:?}", input);
+        eprintln!("TO   {:?}", expected);
+        assert_parse_ok(default_attribute_value(input.into()), expected);
+    }
+
+    #[rstest]
     #[case(
         "device type ma_rootdevice = 22, version 1;",
         DeviceType {name: "ma_rootdevice", code: 22, version: 1}
@@ -1299,7 +1365,6 @@ mod tests {
         DeviceType {name: "ma_secondary_network_commissioning", code: 0xfff10002 , version: 0x123}
     )]
     fn test_parse_device_type(#[case] input: &str, #[case] expected: DeviceType) {
-        // device type ma_rootdevice = 22, version 1;
         assert_parse_ok(device_type(input.into()), expected);
     }
 

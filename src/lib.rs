@@ -521,22 +521,33 @@ impl Field<'_> {
 
 /// Grabs a tag set which are whitespace-separated list of items
 ///
-/// Returns a parser for IResult<_, HashSet<&str>>
-/// where the has set contains a items from the given tags.
+/// Returns applyin the parser and extracting a HashSet of the given tags.
 macro_rules! tags_set {
-    ($tag:expr) => {
-        separated_list0(
-            whitespace1,
-            tag_no_case($tag),
-        ).map(|items| HashSet::from_iter(items.iter().map(|s| *s.fragment())) as HashSet<&str>)
-    };
-    ($($tags:expr),+) => {
-        separated_list0(
-            whitespace1,
-            alt((
-                $(tag_no_case(($tags))),+
-            ))
-        ).map(|items| HashSet::from_iter(items.iter().map(|s| *s.fragment())) as HashSet<&str>)
+    ($span:ident, $($tags:expr),+) => {{
+        let mut result = HashSet::new();
+        let mut rest = $span;
+        loop {
+           let mut element_start = rest;
+           if !result.is_empty() {
+               match whitespace1.parse(element_start) {
+                   Ok((p, _)) => element_start = p,
+                   Err(_) => break,
+               }
+           } 
+           
+           $(
+           if let Ok((tail, tag)) = nom::bytes::complete::tag_no_case::<_,_,()>($tags).parse(element_start) {
+               rest = tail;
+               result.insert(*tag.fragment());
+               continue;
+           } else 
+           )+
+           {
+              break;
+           }
+        }
+        (rest, result)
+    }
     };
 }
 
@@ -556,9 +567,7 @@ pub struct StructField<'a> {
 impl StructField<'_> {
     pub fn parse(span: Span) -> IResult<Span, StructField<'_>> {
         let (span, maturity) = delimited(whitespace0, api_maturity, whitespace0).parse(span)?;
-
-        let (span, attributes) =
-            tags_set!("optional", "nullable", "fabric_sensitive").parse(span)?;
+        let (span, attributes) = tags_set!(span, "optional", "nullable", "fabric_sensitive");
 
         let is_optional = attributes.contains("optional");
         let is_nullable = attributes.contains("nullable");
@@ -637,7 +646,7 @@ impl Struct<'_> {
 
         let (span, _) = whitespace0.parse(span)?;
 
-        let (span, attributes) = tags_set!("fabric_scoped").parse(span)?;
+        let (span, attributes) = tags_set!(span, "fabric_scoped");
 
         let is_fabric_scoped = attributes.contains("fabric_scoped");
 
@@ -731,7 +740,7 @@ impl Event<'_> {
         maturity: ApiMaturity,
         span: Span<'b>,
     ) -> IResult<Span<'b>, Event<'c>> {
-        let (span, attributes) = tags_set!("fabric_sensitive").parse(span)?;
+        let (span, attributes) = tags_set!(span, "fabric_sensitive");
         let is_fabric_sensitive = attributes.contains("fabric_sensitive");
 
         tuple((
@@ -818,8 +827,7 @@ impl Command<'_> {
         maturity: ApiMaturity,
         span: Span<'b>,
     ) -> IResult<Span<'b>, Command<'c>> {
-        let (span, qualities) = tags_set!("timed", "fabric").parse(span)?;
-
+        let (span, qualities) = tags_set!(span, "timed", "fabric");
         let is_timed = qualities.contains("timed");
         let is_fabric_scoped = qualities.contains("fabric");
 
@@ -956,7 +964,7 @@ impl Attribute<'_> {
         maturity: ApiMaturity,
         span: Span<'b>,
     ) -> IResult<Span<'b>, Attribute<'c>> {
-        let (span, qualities) = tags_set!("readonly", "nosubscribe", "timedwrite").parse(span)?;
+        let (span, qualities) = tags_set!(span, "readonly", "nosubscribe", "timedwrite");
         let is_read_only = qualities.contains("readonly");
         let is_no_subscribe = qualities.contains("nosubscribe");
         let is_timed_write = qualities.contains("timedwrite");

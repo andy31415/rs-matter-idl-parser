@@ -4,11 +4,11 @@ use miette::{Diagnostic, NamedSource, SourceSpan};
 use nom::{
     branch::alt,
     bytes::complete::{is_not, tag, tag_no_case, take_until, take_while, take_while1},
-    character::complete::{hex_digit1, one_of},
+    character::complete::{hex_digit1, multispace1, one_of},
     combinator::{map, map_res, opt, recognize, value},
     error::{Error as NomError, ErrorKind},
     multi::{many0, many1, separated_list0},
-    sequence::{delimited, pair, preceded, tuple},
+    sequence::{delimited, preceded, tuple},
     IResult, Parser,
 };
 use nom_locate::LocatedSpan;
@@ -161,34 +161,26 @@ pub enum Whitespace<'a> {
 /// returns the content of the comment
 pub fn whitespace_group(span: Span) -> IResult<Span, Whitespace<'_>> {
     // C-style comment, output thrown away
-    let result = map::<Span, _, _, _, _, _>(pair(tag("//"), is_not("\n\r")), |(_, comment)| {
-        Whitespace::CComment(comment.fragment())
-    })(span);
-    if result.is_ok() {
-        return result;
+    if let Ok((span, c)) = preceded(tag::<_, _, ()>("//"), is_not("\n\r")).parse(span) {
+        return Ok((span, Whitespace::CComment(c.fragment())));
     }
 
-    // C++-style comment, output thrown away
-    let result = map(
-        tuple((tag::<&str, Span, _>("/*"), take_until("*/"), tag("*/"))),
-        |(_, comment, _)| {
-            if comment.starts_with('*') {
-                Whitespace::DocComment(&comment.fragment()[1..])
+    if let Ok((span, cpp)) =
+        delimited(tag::<_, _, ()>("/*"), take_until("*/"), tag("*/")).parse(span)
+    {
+        return Ok((
+            span,
+            if cpp.starts_with('*') {
+                Whitespace::DocComment(&cpp.fragment()[1..])
             } else {
-                Whitespace::CppComment(comment.fragment())
-            }
-        },
-    )(span);
-    if result.is_ok() {
-        return result;
+                Whitespace::CppComment(cpp.fragment())
+            },
+        ));
     }
 
-    let is_space = |c: char| -> bool { c == ' ' || c == '\r' || c == '\n' || c == '\t' };
-
-    // Finally just consume the whitespace
-    map::<Span, _, _, _, _, _>(take_while1(is_space), |comment| {
-        Whitespace::Whitespace(&comment)
-    })(span)
+    multispace1
+        .map(|c: Span| Whitespace::Whitespace(*c.fragment()))
+        .parse(span)
 }
 
 /// Parses 0 or more whitespaces.

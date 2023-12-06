@@ -81,10 +81,10 @@ pub fn api_maturity(span: Span) -> IResult<Span, ApiMaturity> {
 /// assert_eq!(result.0.fragment().to_string(), "test");
 /// assert_eq!(result.1, 0x12abc);
 /// ```
-pub fn hex_integer(span: Span) -> IResult<Span, u32> {
+pub fn hex_integer(span: Span) -> IResult<Span, u64> {
     preceded(
         tag_no_case("0x"),
-        map_res(recognize(hex_digit1), |r: Span| u32::from_str_radix(&r, 16)),
+        map_res(recognize(hex_digit1), |r: Span| u64::from_str_radix(&r, 16)),
     )(span)
 }
 
@@ -103,9 +103,9 @@ pub fn hex_integer(span: Span) -> IResult<Span, u32> {
 /// assert_eq!(result.0.fragment().to_string(), "abctest");
 /// assert_eq!(result.1, 12);
 /// ```
-pub fn decimal_integer(span: Span) -> IResult<Span, u32> {
+pub fn decimal_integer(span: Span) -> IResult<Span, u64> {
     map_res(recognize(many1(one_of("0123456789"))), |r: Span| {
-        r.parse::<u32>()
+        r.parse::<u64>()
     })(span)
 }
 
@@ -128,7 +128,7 @@ pub fn decimal_integer(span: Span) -> IResult<Span, u32> {
 /// assert_eq!(result.0.fragment().to_string(), "test");
 /// assert_eq!(result.1, 0x12abc);
 /// ```
-pub fn positive_integer(span: Span) -> IResult<Span, u32> {
+pub fn positive_integer(span: Span) -> IResult<Span, u64> {
     // NOTE: orer is important so that
     // 0x123 is a hex not 0 followed by "x123"
     alt((hex_integer, decimal_integer))(span)
@@ -295,7 +295,7 @@ pub fn parse_id(span: Span) -> IResult<Span, &str> {
 pub struct ConstantEntry<'a> {
     pub maturity: ApiMaturity,
     pub id: &'a str,
-    pub code: u32,
+    pub code: u64,
 }
 
 impl<'a> ConstantEntry<'a> {
@@ -441,7 +441,7 @@ impl<'a> Bitmap<'a> {
 pub struct DataType<'a> {
     name: &'a str,
     is_list: bool,
-    max_length: Option<u32>,
+    max_length: Option<u64>,
 }
 
 impl<'a> DataType<'a> {
@@ -461,7 +461,7 @@ impl<'a> DataType<'a> {
         }
     }
 
-    pub fn scalar_of_size(name: &'_ str, max_length: u32) -> DataType<'_> {
+    pub fn scalar_of_size(name: &'_ str, max_length: u64) -> DataType<'_> {
         DataType {
             name,
             is_list: false,
@@ -477,7 +477,7 @@ impl<'a> DataType<'a> {
 pub struct Field<'a> {
     pub data_type: DataType<'a>,
     pub id: &'a str,
-    pub code: u32,
+    pub code: u64,
 }
 
 impl Field<'_> {
@@ -592,7 +592,7 @@ fn struct_fields(span: Span) -> IResult<Span, Vec<StructField<'_>>> {
             ))
             .map(|(_, f, _, _, _)| f),
         ),
-        tag("}"),
+        tuple((whitespace0, tag("}"))),
     )
     .parse(span)
 }
@@ -605,7 +605,7 @@ fn struct_fields(span: Span) -> IResult<Span, Vec<StructField<'_>>> {
 pub enum StructType {
     Regular,
     Request,
-    Response(u32), // response with a code
+    Response(u64), // response with a code
 }
 
 /// A structure defined in IDL.
@@ -709,7 +709,7 @@ pub struct Event<'a> {
     pub priority: EventPriority,
     pub access: AccessPrivilege,
     pub id: &'a str,
-    pub code: u32,
+    pub code: u64,
     pub fields: Vec<StructField<'a>>,
     pub is_fabric_sensitive: bool,
 }
@@ -780,7 +780,7 @@ pub struct Command<'a> {
     pub id: &'a str,
     pub input: Option<&'a str>,
     pub output: &'a str,
-    pub code: u32,
+    pub code: u64,
     pub is_timed: bool,
     pub is_fabric_scoped: bool,
 }
@@ -980,8 +980,8 @@ pub struct Cluster<'a> {
     pub maturity: ApiMaturity,
 
     pub id: &'a str,
-    pub code: u32,
-    pub revision: u32,
+    pub code: u64,
+    pub revision: u64,
 
     pub bitmaps: Vec<Bitmap<'a>>,
     pub enums: Vec<Enum<'a>>,

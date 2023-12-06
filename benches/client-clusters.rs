@@ -1,7 +1,6 @@
 use divan::black_box;
 use miette::GraphicalReportHandler;
 use rs_matter_idl_parser::Idl;
-use std::io::Write;
 
 fn main() {
     // Run registered benchmarks.

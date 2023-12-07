@@ -1655,6 +1655,14 @@ mod tests {
           internal cluster MyTestCluster = 0x123 {
              revision 22; // just for testing
 
+             info event StateChanged = 0 {
+               int16u actionID = 0;
+             }
+
+             bitmap Feature : bitmap32 {
+               kCalendarFormat = 0x1;
+             }
+
              enum ApplyUpdateActionEnum : enum8 {
                kProceed = 0;
                kAwaitNextAction = 1;
@@ -1720,9 +1728,30 @@ mod tests {
                         },
                         ..Default::default()
                     }],
-                    ..Default::default()
+                    is_fabric_scoped: false,
                 }
             ],
+            bitmaps: vec![Bitmap {
+                doc_comment: None,
+                maturity: ApiMaturity::STABLE,
+                id: "Feature",
+                base_type: "bitmap32",
+                entries: vec![ConstantEntry { maturity: ApiMaturity::STABLE, id: "kCalendarFormat", code: 1 }] }],
+            events: vec![Event {
+                doc_comment: None,
+                maturity: ApiMaturity::STABLE,
+                priority: EventPriority::Info,
+                access: AccessPrivilege::View,
+                id: "StateChanged",
+                code: 0,
+                fields: vec![
+                    StructField {
+                        field: Field { data_type: DataType::scalar("int16u") , id: "actionID", code: 0 },
+                        ..Default::default()
+                    }
+                ],
+                is_fabric_sensitive: false,
+            }],
             ..Default::default()
         });
     }

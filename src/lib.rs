@@ -1463,7 +1463,7 @@ impl IdlParsingError {
 
         return IdlParsingError {
             src: NamedSource::new("input idl", input.fragment().to_string()),
-            cluster_pos: (input.len() - input.len(), 1).into(),
+            cluster_pos: (input.len() - span.len(), 1).into(),
             error_location: (err_pos, 1).into(),
         };
     }

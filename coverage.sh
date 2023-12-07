@@ -22,7 +22,7 @@ grcov . -s . --binary-path ./target/debug/ -t html --branch --ignore-not-existin
 }
 
 tarpaulin_coverage(){
-    cargo tarpaulin -o Html --output-dir target/coverage
+    cargo tarpaulin -o Html --engine llvm --output-dir target/coverage
 }
 
 case $1 in

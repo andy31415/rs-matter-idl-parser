@@ -4,20 +4,22 @@ use miette::{Diagnostic, NamedSource, SourceSpan};
 use nom::{
     branch::alt,
     bytes::complete::{is_not, tag, tag_no_case, take_until, take_while, take_while1},
-    character::complete::{hex_digit1, multispace1, one_of, space1},
-    combinator::{map, map_res, opt, recognize, value},
-    error::{VerboseError},
-    multi::{many0, many1, separated_list0},
+    character::complete::{hex_digit1, multispace1, one_of, space1, digit1},
+    combinator::{map, opt, recognize, value},
+    error::{ErrorKind},
+    multi::{many0, separated_list0},
     sequence::{delimited, preceded, tuple},
     IResult, Parser,
 };
+use nom_greedyerror::GreedyError;
 use nom_locate::LocatedSpan;
 use nom_supreme::ParserExt;
 use thiserror::Error;
 
 // easier to type and not move str around
 type Span<'a> = LocatedSpan<&'a str>;
-type ParseError<'a> = VerboseError<Span<'a>>;
+//type ParseError<'a> = VerboseError<Span<'a>>;
+type ParseError<'a> = GreedyError<Span<'a>, ErrorKind>;
 
 /// How mature/usable a member of an API is
 ///
@@ -84,10 +86,10 @@ pub fn api_maturity(span: Span) -> IResult<Span, ApiMaturity, ParseError> {
 /// assert_eq!(result.1, 0x12abc);
 /// ```
 pub fn hex_integer(span: Span) -> IResult<Span, u64, ParseError> {
-    preceded(
-        tag_no_case("0x"),
-        map_res(recognize(hex_digit1), |r: Span| u64::from_str_radix(&r, 16)),
-    )(span)
+    hex_digit1::<Span, ParseError>
+        .preceded_by(tag_no_case("0x"))
+        .map(|r| u64::from_str_radix(r.fragment(), 16).expect("valid hex digits"))
+        .parse(span)
 }
 
 /// Parses a decimal-formated integer
@@ -106,9 +108,9 @@ pub fn hex_integer(span: Span) -> IResult<Span, u64, ParseError> {
 /// assert_eq!(result.1, 12);
 /// ```
 pub fn decimal_integer(span: Span) -> IResult<Span, u64, ParseError> {
-    map_res(recognize(many1(one_of("0123456789"))), |r: Span| {
-        r.parse::<u64>()
-    })(span)
+    digit1::<Span, ParseError>
+      .map(|s| s.fragment().parse::<u64>().expect("valid digits"))
+      .parse(span)
 }
 
 /// Parses a positive integer (hex or decimal)
@@ -1445,20 +1447,22 @@ impl IdlParsingError {
         // the span represents where cluster parsing failed
         let error = match error {
             nom::Err::Error(e) => e,
-          | nom::Err::Failure(e)  => e,
+            nom::Err::Failure(e) => e,
             nom::Err::Incomplete(_) => {
-                return IdlParsingError{
-                   src: NamedSource::new("input idl", input.fragment().to_string()),
-                   cluster_pos: (input.len() - span.len(), 1).into(),
-                   error_location: (input.len() - span.len(), 1).into(),
+                return IdlParsingError {
+                    src: NamedSource::new("input idl", input.fragment().to_string()),
+                    cluster_pos: (input.len() - span.len(), 1).into(),
+                    error_location: (input.len() - span.len(), 1).into(),
                 }
             }
         };
-        let min_pos = error.errors.iter().map(
-            |(p, _k)| 
-            p.fragment().len()
-        ).min().unwrap_or(input.len());
-        
+        let min_pos = error
+            .errors
+            .iter()
+            .map(|(p, _k)| p.fragment().len())
+            .min()
+            .unwrap_or(input.len());
+
         let err_pos = input.len() - min_pos;
 
         return IdlParsingError {
@@ -1500,11 +1504,16 @@ mod tests {
     use super::*;
     use rstest::rstest;
 
-    fn remove_loc<'a, O>(src: IResult<Span<'a>, O, ParseError<'a>>) -> IResult<Span<'a>, O, ParseError<'a>> {
+    fn remove_loc<'a, O>(
+        src: IResult<Span<'a>, O, ParseError<'a>>,
+    ) -> IResult<Span<'a>, O, ParseError<'a>> {
         src.map(|(span, o)| ((*span.fragment()).into(), o))
     }
 
-    fn assert_parse_ok<R: PartialEq + std::fmt::Debug>(parsed: IResult<Span, R, ParseError>, expected: R) {
+    fn assert_parse_ok<R: PartialEq + std::fmt::Debug>(
+        parsed: IResult<Span, R, ParseError>,
+        expected: R,
+    ) {
         let actual = parsed.expect("Parse should have succeeded").1;
         assert_eq!(actual, expected);
     }

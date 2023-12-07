@@ -1435,9 +1435,6 @@ pub struct IdlParsingError {
     #[source_code]
     pub src: NamedSource,
 
-    #[label("Top-level element that failed to parse")]
-    pub cluster_pos: SourceSpan,
-
     #[label("Parse error location")]
     pub error_location: SourceSpan,
 }
@@ -1451,7 +1448,6 @@ impl IdlParsingError {
             nom::Err::Incomplete(_) => {
                 return IdlParsingError {
                     src: NamedSource::new("input idl", input.fragment().to_string()),
-                    cluster_pos: (input.len() - span.len(), 1).into(),
                     error_location: (input.len() - span.len(), 1).into(),
                 }
             }
@@ -1467,7 +1463,6 @@ impl IdlParsingError {
 
         return IdlParsingError {
             src: NamedSource::new("input idl", input.fragment().to_string()),
-            cluster_pos: (input.len() - span.len(), 1).into(),
             error_location: (err_pos, 1).into(),
         };
     }

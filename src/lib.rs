@@ -1308,7 +1308,7 @@ pub fn cluster_instantiation(span: Span) -> IResult<Span, ClusterInstantiation<'
 
     loop {
         let (mut rest, _) = whitespace0.parse(span)?;
-        
+
         // TODO: capture the error and return if failure to parse {
         //       to get better error positioning
         //
@@ -1661,6 +1661,10 @@ mod tests {
                kDiscontinue = 2;
              }
 
+             response struct CommissioningCompleteResponse = 5 {
+               char_string debugText = 1;
+             }
+
              readonly attribute attrib_id attributeList[] = 65531;
              fabric command access(invoke: administer) CommissioningComplete(): CommissioningCompleteResponse = 4;
           }
@@ -1702,6 +1706,23 @@ mod tests {
                     is_fabric_scoped: true,
                     ..Default::default()
             }],
+            structs: vec![
+                Struct {
+                    doc_comment: None,
+                    maturity: ApiMaturity::STABLE,
+                    struct_type: StructType::Response(5),
+                    id: "CommissioningCompleteResponse",
+                    fields: vec![StructField {
+                        field: Field {
+                            data_type: DataType::scalar("char_string"),
+                            id: "debugText",
+                            code: 1
+                        },
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                }
+            ],
             ..Default::default()
         });
     }

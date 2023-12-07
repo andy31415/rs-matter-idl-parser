@@ -1309,8 +1309,11 @@ pub fn cluster_instantiation(span: Span) -> IResult<Span, ClusterInstantiation<'
     loop {
         let (mut rest, _) = whitespace0.parse(span)?;
         
-        /// TODO: capture the error and return if failure to parse {
-        ///       to get better error positioning
+        // TODO: capture the error and return if failure to parse {
+        //       to get better error positioning
+        //
+        // Ideally we would capture the "deepest error"
+        // and return that on final failure.
 
         if let Ok((tail, a)) = attribute_instantiation(rest) {
             attributes.push(a);

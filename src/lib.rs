@@ -1419,6 +1419,13 @@ pub struct Idl<'a> {
     pub endpoints: Vec<Endpoint<'a>>,
 }
 
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
+enum InternalIdlParsedData<'a> {
+    Cluster(Cluster<'a>),
+    Endpoint(Endpoint<'a>),
+    Whitespace,
+}
+
 #[derive(Error, Debug, Diagnostic)]
 #[error("Failed to parse IDL.")]
 #[diagnostic(
@@ -1436,38 +1443,43 @@ pub struct IdlParsingError {
     pub error_location: SourceSpan,
 }
 
+impl IdlParsingError {
+    fn from<'a>(input: Span<'a>, value: nom::Err<nom::error::Error<Span<'a>>>) -> Self {
+        // the span represents where cluster parsing failed
+        let err_pos = match value {
+            nom::Err::Error(pos) => input.len() - pos.input.len(),
+            nom::Err::Incomplete(_) => todo!(),
+            nom::Err::Failure(_) => todo!(),
+        };
+
+        return IdlParsingError {
+            src: NamedSource::new("input idl", input.fragment().to_string()),
+            cluster_pos: (input.len() - input.len(), 1).into(),
+            error_location: (err_pos, 1).into(),
+        };
+    }
+}
+
 impl Idl<'_> {
     pub fn parse(input: Span) -> Result<Idl, IdlParsingError> {
         let mut idl = Idl::default();
 
         let mut span = input;
-        loop {
-            if let Ok((rest, cluster)) = Cluster::parse(span) {
-                idl.clusters.push(cluster);
-                span = rest;
-            } else if let Ok((rest, ep)) = endpoint.parse(span) {
-                idl.endpoints.push(ep);
-                span = rest;
-            } else {
-                break;
+        while !span.is_empty() {
+            let (rest, r) = alt((
+                Cluster::parse.map(|c| InternalIdlParsedData::Cluster(c)),
+                endpoint.map(|e| InternalIdlParsedData::Endpoint(e)),
+                value(InternalIdlParsedData::Whitespace, whitespace1),
+            ))
+            .parse(span)
+            .map_err(|e| IdlParsingError::from(input, e))?;
+
+            match r {
+                InternalIdlParsedData::Cluster(c) => idl.clusters.push(c),
+                InternalIdlParsedData::Endpoint(e) => idl.endpoints.push(e),
+                InternalIdlParsedData::Whitespace => (),
             }
-        }
-
-        let (span, _) = whitespace0.parse(span).expect("Whitespace0 cannot fail");
-
-        if !span.is_empty() {
-            // the span represents where cluster parsing failed
-            let err_pos = match Cluster::parse(span).expect_err("we know parsing failed") {
-                nom::Err::Error(pos) => input.len() - pos.input.len(),
-                nom::Err::Incomplete(_) => todo!(),
-                nom::Err::Failure(_) => todo!(),
-            };
-
-            return Err(IdlParsingError {
-                src: NamedSource::new("input idl", input.fragment().to_string()),
-                cluster_pos: (input.len() - span.len(), 1).into(),
-                error_location: (err_pos, 1).into(),
-            });
+            span = rest;
         }
 
         Ok(idl)

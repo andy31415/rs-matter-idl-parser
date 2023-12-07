@@ -1472,7 +1472,7 @@ impl Idl<'_> {
                 value(InternalIdlParsedData::Whitespace, whitespace1),
             ))
             .parse(span)
-            .map_err(|e| IdlParsingError::from(input, e))?;
+            .map_err(|e| IdlParsingError::from(span, e))?;
 
             match r {
                 InternalIdlParsedData::Cluster(c) => idl.clusters.push(c),

@@ -4,9 +4,9 @@ use miette::{Diagnostic, NamedSource, SourceSpan};
 use nom::{
     branch::alt,
     bytes::complete::{is_not, tag, tag_no_case, take_until, take_while, take_while1},
-    character::complete::{hex_digit1, multispace1, one_of},
+    character::complete::{hex_digit1, multispace1, one_of, space1},
     combinator::{map, map_res, opt, recognize, value},
-    error::{Error as NomError, ErrorKind},
+    error::{VerboseError},
     multi::{many0, many1, separated_list0},
     sequence::{delimited, preceded, tuple},
     IResult, Parser,
@@ -17,6 +17,7 @@ use thiserror::Error;
 
 // easier to type and not move str around
 type Span<'a> = LocatedSpan<&'a str>;
+type ParseError<'a> = VerboseError<Span<'a>>;
 
 /// How mature/usable a member of an API is
 ///
@@ -50,7 +51,7 @@ pub enum ApiMaturity {
 /// assert_eq!(result.0.fragment().to_string(), " 123");
 /// assert_eq!(result.1, ApiMaturity::PROVISIONAL);
 /// ```
-pub fn api_maturity(span: Span) -> IResult<Span, ApiMaturity> {
+pub fn api_maturity(span: Span) -> IResult<Span, ApiMaturity, ParseError> {
     if let Ok((span, _)) = tag_no_case::<_, _, ()>("stable").parse(span) {
         return Ok((span, ApiMaturity::STABLE));
     }
@@ -82,7 +83,7 @@ pub fn api_maturity(span: Span) -> IResult<Span, ApiMaturity> {
 /// assert_eq!(result.0.fragment().to_string(), "test");
 /// assert_eq!(result.1, 0x12abc);
 /// ```
-pub fn hex_integer(span: Span) -> IResult<Span, u64> {
+pub fn hex_integer(span: Span) -> IResult<Span, u64, ParseError> {
     preceded(
         tag_no_case("0x"),
         map_res(recognize(hex_digit1), |r: Span| u64::from_str_radix(&r, 16)),
@@ -104,7 +105,7 @@ pub fn hex_integer(span: Span) -> IResult<Span, u64> {
 /// assert_eq!(result.0.fragment().to_string(), "abctest");
 /// assert_eq!(result.1, 12);
 /// ```
-pub fn decimal_integer(span: Span) -> IResult<Span, u64> {
+pub fn decimal_integer(span: Span) -> IResult<Span, u64, ParseError> {
     map_res(recognize(many1(one_of("0123456789"))), |r: Span| {
         r.parse::<u64>()
     })(span)
@@ -129,7 +130,7 @@ pub fn decimal_integer(span: Span) -> IResult<Span, u64> {
 /// assert_eq!(result.0.fragment().to_string(), "test");
 /// assert_eq!(result.1, 0x12abc);
 /// ```
-pub fn positive_integer(span: Span) -> IResult<Span, u64> {
+pub fn positive_integer(span: Span) -> IResult<Span, u64, ParseError> {
     // NOTE: orer is important so that
     // 0x123 is a hex not 0 followed by "x123"
     if let Ok(r) = hex_integer.parse(span) {
@@ -163,7 +164,7 @@ pub enum Whitespace<'a> {
 /// Parses whitespace (space/tab/newline and comments).
 ///
 /// returns the content of the comment
-pub fn whitespace_group(span: Span) -> IResult<Span, Whitespace<'_>> {
+pub fn whitespace_group(span: Span) -> IResult<Span, Whitespace<'_>, ParseError> {
     // NOTE: split into cases intentional. Using an ALT pattern here
     //       seems to slow down things a lot.
 
@@ -213,7 +214,7 @@ pub fn whitespace_group(span: Span) -> IResult<Span, Whitespace<'_>> {
 /// assert_eq!(result.0.fragment().to_string(), "no whitespace");
 /// assert_eq!(result.1, None);
 /// ```
-pub fn whitespace0(span: Span) -> IResult<Span, Option<DocComment>> {
+pub fn whitespace0(span: Span) -> IResult<Span, Option<DocComment>, ParseError> {
     // early bail out if it cannot be whitespace
     // Whitespace is only tab/newline/space or `/` for cpp/c comments
     match span.chars().next() {
@@ -261,16 +262,12 @@ pub fn whitespace0(span: Span) -> IResult<Span, Option<DocComment>> {
 /// assert_eq!(result.0.fragment().to_string(), "abc");
 /// assert_eq!(result.1, Some(DocComment("doc comment")));
 /// ```
-pub fn whitespace1(span: Span) -> IResult<Span, Option<DocComment>> {
+pub fn whitespace1(span: Span) -> IResult<Span, Option<DocComment>, ParseError> {
     let parsed = whitespace0(span)?;
 
     if span == parsed.0 {
-        // TODO: how do I make a proper error without
-        //       using internal errors?
-        return Err(nom::Err::Error(NomError {
-            input: span,
-            code: ErrorKind::Space,
-        }));
+        // this WILL fail, using it as such just to get a proper error
+        space1::<_, ParseError>(span)?;
     }
 
     Ok(parsed)
@@ -278,7 +275,7 @@ pub fn whitespace1(span: Span) -> IResult<Span, Option<DocComment>> {
 
 /// Parses a name id, of the form /[a-zA-Z_][a-zA-Z0-9_]*/
 ///
-pub fn parse_id(span: Span) -> IResult<Span, &str> {
+pub fn parse_id(span: Span) -> IResult<Span, &str, ParseError> {
     let valid_first = |c: char| c.is_ascii_alphabetic() || c == '_';
     let valid_second = |c: char| c.is_ascii_alphanumeric() || c == '_';
     map(
@@ -320,7 +317,7 @@ impl<'a> ConstantEntry<'a> {
     ///         }
     /// );
     /// ```
-    pub fn parse(span: Span) -> IResult<Span, ConstantEntry<'_>> {
+    pub fn parse(span: Span) -> IResult<Span, ConstantEntry<'_>, ParseError> {
         tuple((
             whitespace0,
             api_maturity,
@@ -341,7 +338,7 @@ impl<'a> ConstantEntry<'a> {
 /// Parses a list of constant entries, delimeted by "{" "}".
 ///
 /// Consumes the '{' '}' as well as any internal whitespace in them
-fn constant_entries_list(span: Span) -> IResult<Span, Vec<ConstantEntry<'_>>> {
+fn constant_entries_list(span: Span) -> IResult<Span, Vec<ConstantEntry<'_>>, ParseError> {
     delimited(
         tag("{"),
         tuple((
@@ -365,7 +362,7 @@ pub struct Enum<'a> {
 }
 
 impl Enum<'_> {
-    pub fn parse(span: Span) -> IResult<Span, Enum<'_>> {
+    pub fn parse(span: Span) -> IResult<Span, Enum<'_>, ParseError> {
         let (span, comment) = whitespace0(span)?;
         let doc_comment = comment.map(|DocComment(comment)| comment);
         let (span, maturity) = delimited(whitespace0, api_maturity, whitespace0).parse(span)?;
@@ -377,7 +374,7 @@ impl Enum<'_> {
         doc_comment: Option<&'a str>,
         maturity: ApiMaturity,
         span: Span<'b>,
-    ) -> IResult<Span<'b>, Enum<'c>> {
+    ) -> IResult<Span<'b>, Enum<'c>, ParseError<'b>> {
         tuple((
             tag_no_case("enum"),
             whitespace1,
@@ -411,7 +408,7 @@ pub struct Bitmap<'a> {
 }
 
 impl Bitmap<'_> {
-    pub fn parse(span: Span) -> IResult<Span, Bitmap<'_>> {
+    pub fn parse(span: Span) -> IResult<Span, Bitmap<'_>, ParseError> {
         let (span, comment) = whitespace0(span)?;
         let doc_comment = comment.map(|DocComment(comment)| comment);
         let (span, maturity) = delimited(whitespace0, api_maturity, whitespace0).parse(span)?;
@@ -423,7 +420,7 @@ impl Bitmap<'_> {
         doc_comment: Option<&'a str>,
         maturity: ApiMaturity,
         span: Span<'b>,
-    ) -> IResult<Span<'b>, Bitmap<'c>> {
+    ) -> IResult<Span<'b>, Bitmap<'c>, ParseError<'b>> {
         tuple((
             tag_no_case("bitmap"),
             whitespace1,
@@ -494,7 +491,7 @@ pub struct Field<'a> {
 }
 
 impl Field<'_> {
-    pub fn parse(span: Span) -> IResult<Span, Field<'_>> {
+    pub fn parse(span: Span) -> IResult<Span, Field<'_>, ParseError> {
         tuple((
             whitespace0,
             parse_id,
@@ -576,7 +573,7 @@ pub struct StructField<'a> {
 }
 
 impl StructField<'_> {
-    pub fn parse(span: Span) -> IResult<Span, StructField<'_>> {
+    pub fn parse(span: Span) -> IResult<Span, StructField<'_>, ParseError> {
         let (span, maturity) = delimited(whitespace0, api_maturity, whitespace0).parse(span)?;
         let (span, attributes) = tags_set!(span, "optional", "nullable", "fabric_sensitive");
 
@@ -599,7 +596,7 @@ impl StructField<'_> {
     }
 }
 
-fn struct_fields(span: Span) -> IResult<Span, Vec<StructField<'_>>> {
+fn struct_fields(span: Span) -> IResult<Span, Vec<StructField<'_>>, ParseError> {
     delimited(
         tag("{"),
         many0(delimited(
@@ -638,7 +635,7 @@ pub struct Struct<'a> {
 }
 
 impl Struct<'_> {
-    pub fn parse(span: Span) -> IResult<Span, Struct<'_>> {
+    pub fn parse(span: Span) -> IResult<Span, Struct<'_>, ParseError> {
         let (span, doc_comment) = whitespace0.parse(span)?;
         let doc_comment = doc_comment.map(|DocComment(s)| s);
         let (span, maturity) = delimited(whitespace0, api_maturity, whitespace0).parse(span)?;
@@ -650,7 +647,7 @@ impl Struct<'_> {
         doc_comment: Option<&'a str>,
         maturity: ApiMaturity,
         span: Span<'b>,
-    ) -> IResult<Span<'b>, Struct<'c>> {
+    ) -> IResult<Span<'b>, Struct<'c>, ParseError<'b>> {
         let (span, struct_type) =
             opt(alt((tag_no_case("request"), tag_no_case("response"))))(span)?;
         let struct_type = struct_type.map(|f| *f.fragment());
@@ -700,7 +697,7 @@ pub enum AccessPrivilege {
     Administer,
 }
 
-pub fn access_privilege(span: Span) -> IResult<Span, AccessPrivilege> {
+pub fn access_privilege(span: Span) -> IResult<Span, AccessPrivilege, ParseError> {
     if let Ok((span, _)) = tag_no_case::<_, _, ()>("view").parse(span) {
         return Ok((span, AccessPrivilege::View));
     }
@@ -721,7 +718,7 @@ pub enum EventPriority {
     Debug,
 }
 
-pub fn event_priority(span: Span) -> IResult<Span, EventPriority> {
+pub fn event_priority(span: Span) -> IResult<Span, EventPriority, ParseError> {
     if let Ok((span, _)) = tag_no_case::<_, _, ()>("info").parse(span) {
         return Ok((span, EventPriority::Info));
     }
@@ -747,7 +744,7 @@ pub struct Event<'a> {
 }
 
 impl Event<'_> {
-    pub fn parse(span: Span) -> IResult<Span, Event<'_>> {
+    pub fn parse(span: Span) -> IResult<Span, Event<'_>, ParseError> {
         let (span, doc_comment) = whitespace0.parse(span)?;
         let doc_comment = doc_comment.map(|DocComment(s)| s);
         let (span, maturity) = delimited(whitespace0, api_maturity, whitespace0).parse(span)?;
@@ -759,7 +756,7 @@ impl Event<'_> {
         doc_comment: Option<&'a str>,
         maturity: ApiMaturity,
         span: Span<'b>,
-    ) -> IResult<Span<'b>, Event<'c>> {
+    ) -> IResult<Span<'b>, Event<'c>, ParseError<'b>> {
         let (span, attributes) = tags_set!(span, "fabric_sensitive");
         let is_fabric_sensitive = attributes.contains("fabric_sensitive");
 
@@ -834,7 +831,7 @@ impl Default for Command<'_> {
 }
 
 impl Command<'_> {
-    pub fn parse(span: Span) -> IResult<Span, Command<'_>> {
+    pub fn parse(span: Span) -> IResult<Span, Command<'_>, ParseError> {
         let (span, doc_comment) = whitespace0.parse(span)?;
         let doc_comment = doc_comment.map(|DocComment(s)| s);
         let (span, maturity) = delimited(whitespace0, api_maturity, whitespace0).parse(span)?;
@@ -846,7 +843,7 @@ impl Command<'_> {
         doc_comment: Option<&'a str>,
         maturity: ApiMaturity,
         span: Span<'b>,
-    ) -> IResult<Span<'b>, Command<'c>> {
+    ) -> IResult<Span<'b>, Command<'c>, ParseError<'b>> {
         let (span, qualities) = tags_set!(span, "timed", "fabric");
         let is_timed = qualities.contains("timed");
         let is_fabric_scoped = qualities.contains("fabric");
@@ -928,7 +925,7 @@ impl<'a> Default for Attribute<'a> {
 
 // Returns read & write access,
 // CANNOT fail (returns defaults if it fails)
-fn attribute_access(span: Span) -> IResult<Span, (AccessPrivilege, AccessPrivilege)> {
+fn attribute_access(span: Span) -> IResult<Span, (AccessPrivilege, AccessPrivilege), ParseError> {
     let (span, tags) = opt(delimited(
         tuple((
             whitespace0,
@@ -971,7 +968,7 @@ fn attribute_access(span: Span) -> IResult<Span, (AccessPrivilege, AccessPrivile
 }
 
 impl Attribute<'_> {
-    pub fn parse(span: Span) -> IResult<Span, Attribute<'_>> {
+    pub fn parse(span: Span) -> IResult<Span, Attribute<'_>, ParseError> {
         let (span, doc_comment) = whitespace0.parse(span)?;
         let doc_comment = doc_comment.map(|DocComment(s)| s);
         let (span, maturity) = delimited(whitespace0, api_maturity, whitespace0).parse(span)?;
@@ -983,7 +980,7 @@ impl Attribute<'_> {
         doc_comment: Option<&'a str>,
         maturity: ApiMaturity,
         span: Span<'b>,
-    ) -> IResult<Span<'b>, Attribute<'c>> {
+    ) -> IResult<Span<'b>, Attribute<'c>, ParseError<'b>> {
         let (span, qualities) = tags_set!(span, "readonly", "nosubscribe", "timedwrite");
         let is_read_only = qualities.contains("readonly");
         let is_no_subscribe = qualities.contains("nosubscribe");
@@ -1081,7 +1078,7 @@ impl<'a> Cluster<'a> {
         None
     }
 
-    pub fn parse(span: Span) -> IResult<Span, Cluster<'_>> {
+    pub fn parse(span: Span) -> IResult<Span, Cluster<'_>, ParseError> {
         let (span, doc_comment) = whitespace0.parse(span)?;
         let doc_comment = doc_comment.map(|DocComment(s)| s);
 
@@ -1135,7 +1132,7 @@ pub struct DeviceType<'a> {
 }
 
 /// parse a device type. Does NOT expect preceeding whitespace
-pub fn device_type(span: Span) -> IResult<Span, DeviceType> {
+pub fn device_type(span: Span) -> IResult<Span, DeviceType, ParseError> {
     tuple((
         parse_id.preceded_by(tuple((
             tag_no_case("device"),
@@ -1173,7 +1170,7 @@ pub enum DefaultAttributeValue {
 /// Parses a default attribute value.
 ///
 /// Does NOT consume leading spaces or spaces after the value
-pub fn default_attribute_value(span: Span) -> IResult<Span, DefaultAttributeValue> {
+pub fn default_attribute_value(span: Span) -> IResult<Span, DefaultAttributeValue, ParseError> {
     // make sure we have some default before trying to parse
     let (span, _) =
         tuple((tag_no_case("default"), whitespace0, tag("="), whitespace0)).parse(span)?;
@@ -1246,7 +1243,7 @@ pub enum AttributeHandlingType {
     Persist,
 }
 
-pub fn attribute_handling_type(span: Span) -> IResult<Span, AttributeHandlingType> {
+pub fn attribute_handling_type(span: Span) -> IResult<Span, AttributeHandlingType, ParseError> {
     if let Ok(r) = value(AttributeHandlingType::Ram, tag_no_case::<_, _, ()>("ram")).parse(span) {
         return Ok(r);
     }
@@ -1268,7 +1265,7 @@ pub struct AttributeInstantiation<'a> {
     pub default: Option<DefaultAttributeValue>,
 }
 
-pub fn attribute_instantiation(span: Span) -> IResult<Span, AttributeInstantiation> {
+pub fn attribute_instantiation(span: Span) -> IResult<Span, AttributeInstantiation, ParseError> {
     tuple((
         attribute_handling_type,
         parse_id.preceded_by(tuple((whitespace1, tag_no_case("attribute"), whitespace1))),
@@ -1291,7 +1288,7 @@ pub struct ClusterInstantiation<'a> {
     pub events: Vec<&'a str>,
 }
 
-pub fn cluster_instantiation(span: Span) -> IResult<Span, ClusterInstantiation<'_>> {
+pub fn cluster_instantiation(span: Span) -> IResult<Span, ClusterInstantiation<'_>, ParseError> {
     let (mut span, name) = parse_id
         .preceded_by(tuple((
             whitespace0,
@@ -1362,7 +1359,7 @@ pub struct Endpoint<'a> {
     instantiations: Vec<ClusterInstantiation<'a>>,
 }
 
-pub fn endpoint(span: Span) -> IResult<Span, Endpoint<'_>> {
+pub fn endpoint(span: Span) -> IResult<Span, Endpoint<'_>, ParseError> {
     let (mut span, id) = positive_integer
         .preceded_by(tuple((whitespace0, tag_no_case("endpoint"), whitespace1)))
         .terminated(tuple((whitespace0, tag("{"))))
@@ -1444,13 +1441,25 @@ pub struct IdlParsingError {
 }
 
 impl IdlParsingError {
-    fn from<'a>(input: Span<'a>, value: nom::Err<nom::error::Error<Span<'a>>>) -> Self {
+    fn from<'a>(input: Span<'a>, span: Span<'a>, error: nom::Err<ParseError<'a>>) -> Self {
         // the span represents where cluster parsing failed
-        let err_pos = match value {
-            nom::Err::Error(pos) => input.len() - pos.input.len(),
-            nom::Err::Incomplete(_) => todo!(),
-            nom::Err::Failure(_) => todo!(),
+        let error = match error {
+            nom::Err::Error(e) => e,
+          | nom::Err::Failure(e)  => e,
+            nom::Err::Incomplete(_) => {
+                return IdlParsingError{
+                   src: NamedSource::new("input idl", input.fragment().to_string()),
+                   cluster_pos: (input.len() - span.len(), 1).into(),
+                   error_location: (input.len() - span.len(), 1).into(),
+                }
+            }
         };
+        let min_pos = error.errors.iter().map(
+            |(p, _k)| 
+            p.fragment().len()
+        ).min().unwrap_or(input.len());
+        
+        let err_pos = input.len() - min_pos;
 
         return IdlParsingError {
             src: NamedSource::new("input idl", input.fragment().to_string()),
@@ -1467,12 +1476,12 @@ impl Idl<'_> {
         let mut span = input;
         while !span.is_empty() {
             let (rest, r) = alt((
-                Cluster::parse.map(|c| InternalIdlParsedData::Cluster(c)),
-                endpoint.map(|e| InternalIdlParsedData::Endpoint(e)),
+                Cluster::parse.map(InternalIdlParsedData::Cluster),
+                endpoint.map(InternalIdlParsedData::Endpoint),
                 value(InternalIdlParsedData::Whitespace, whitespace1),
             ))
             .parse(span)
-            .map_err(|e| IdlParsingError::from(span, e))?;
+            .map_err(|e| IdlParsingError::from(input, span, e))?;
 
             match r {
                 InternalIdlParsedData::Cluster(c) => idl.clusters.push(c),
@@ -1491,11 +1500,11 @@ mod tests {
     use super::*;
     use rstest::rstest;
 
-    fn remove_loc<O>(src: IResult<Span, O>) -> IResult<Span, O> {
+    fn remove_loc<'a, O>(src: IResult<Span<'a>, O, ParseError<'a>>) -> IResult<Span<'a>, O, ParseError<'a>> {
         src.map(|(span, o)| ((*span.fragment()).into(), o))
     }
 
-    fn assert_parse_ok<R: PartialEq + std::fmt::Debug>(parsed: IResult<Span, R>, expected: R) {
+    fn assert_parse_ok<R: PartialEq + std::fmt::Debug>(parsed: IResult<Span, R, ParseError>, expected: R) {
         let actual = parsed.expect("Parse should have succeeded").1;
         assert_eq!(actual, expected);
     }

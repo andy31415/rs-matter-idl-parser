@@ -4,9 +4,9 @@ use miette::{Diagnostic, NamedSource, SourceSpan};
 use nom::{
     branch::alt,
     bytes::complete::{is_not, tag, tag_no_case, take_until, take_while, take_while1},
-    character::complete::{hex_digit1, multispace1, one_of, space1, digit1},
+    character::complete::{digit1, hex_digit1, multispace1, one_of, space1},
     combinator::{map, opt, recognize, value},
-    error::{ErrorKind},
+    error::ErrorKind,
     multi::{many0, separated_list0},
     sequence::{delimited, preceded, tuple},
     IResult, Parser,
@@ -109,8 +109,8 @@ pub fn hex_integer(span: Span) -> IResult<Span, u64, ParseError> {
 /// ```
 pub fn decimal_integer(span: Span) -> IResult<Span, u64, ParseError> {
     digit1::<Span, ParseError>
-      .map(|s| s.fragment().parse::<u64>().expect("valid digits"))
-      .parse(span)
+        .map(|s| s.fragment().parse::<u64>().expect("valid digits"))
+        .parse(span)
 }
 
 /// Parses a positive integer (hex or decimal)

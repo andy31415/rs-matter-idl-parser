@@ -26,7 +26,7 @@ pub trait DeepestIndex {
     fn depest_index(&self) -> Option<usize>;
 }
 
-impl<'a, E> DeepestIndex for nom::Err<E>
+impl<E> DeepestIndex for nom::Err<E>
 where
     E: DeepestIndex,
 {
@@ -68,14 +68,11 @@ where
 
     pub fn intercept<O>(&mut self, data: Result<O, E>) -> Result<O, E> {
         if let Err(ref e) = data {
-            match e.depest_index() {
-                Some(depth) => {
-                    let current_depth = self.deepest.as_ref().map(|(d, _)| *d).unwrap_or(0);
-                    if current_depth < depth {
-                        self.deepest = Some((depth, e.clone()));
-                    }
+            if let Some(depth) = e.depest_index() {
+                let current_depth = self.deepest.as_ref().map(|(d, _)| *d).unwrap_or(0);
+                if current_depth < depth {
+                    self.deepest = Some((depth, e.clone()));
                 }
-                None => (),
             };
         }
         data

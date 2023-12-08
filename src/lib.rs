@@ -21,6 +21,67 @@ type Span<'a> = LocatedSpan<&'a str>;
 //type ParseError<'a> = VerboseError<Span<'a>>;
 type ParseError<'a> = GreedyError<Span<'a>, ErrorKind>;
 
+/// Fetch the deepest location of an error within an error type
+pub trait DeepestIndex {
+    fn depest_index(&self) -> Option<usize>;
+}
+
+impl<'a, E> DeepestIndex for nom::Err<E>
+where
+    E: DeepestIndex,
+{
+    fn depest_index(&self) -> Option<usize> {
+        match self {
+            nom::Err::Error(e) => e.depest_index(),
+            nom::Err::Failure(e) => e.depest_index(),
+            nom::Err::Incomplete(_) => None,
+        }
+    }
+}
+
+impl<'a> DeepestIndex for GreedyError<Span<'a>, ErrorKind> {
+    fn depest_index(&self) -> Option<usize> {
+        self.errors.iter().map(|(p, _k)| p.location_offset()).max()
+    }
+}
+
+/// Keep track of the deepest error encoutered
+#[derive(Debug, PartialEq, Clone)]
+struct DeepestError<E> {
+    deepest: Option<(usize, E)>,
+}
+
+impl<E> DeepestError<E>
+where
+    E: DeepestIndex + Clone + std::fmt::Debug,
+{
+    pub fn new() -> Self {
+        Self { deepest: None }
+    }
+
+    pub fn or(self, e: E) -> E {
+        match self.deepest {
+            Some((_, myerror)) => myerror,
+            None => e,
+        }
+    }
+
+    pub fn intercept<O>(&mut self, data: Result<O, E>) -> Result<O, E> {
+        if let Err(ref e) = data {
+            match e.depest_index() {
+                Some(depth) => {
+                    let current_depth = self.deepest.as_ref().map(|(d, _)| *d).unwrap_or(0);
+                    if current_depth < depth {
+                        self.deepest = Some((depth, e.clone()));
+                    }
+                }
+                None => (),
+            };
+        }
+        data
+    }
+}
+
 /// How mature/usable a member of an API is
 ///
 /// Most things should be stable, however while spec is developed
@@ -1306,6 +1367,8 @@ pub fn cluster_instantiation(span: Span) -> IResult<Span, ClusterInstantiation<'
     let mut commands = Vec::new();
     let mut events = Vec::new();
 
+    let mut deepest_error = DeepestError::new();
+
     loop {
         let (mut rest, _) = whitespace0.parse(span)?;
 
@@ -1315,31 +1378,33 @@ pub fn cluster_instantiation(span: Span) -> IResult<Span, ClusterInstantiation<'
         // Ideally we would capture the "deepest error"
         // and return that on final failure.
 
-        if let Ok((tail, a)) = attribute_instantiation(rest) {
+        if let Ok((tail, a)) = deepest_error.intercept(attribute_instantiation(rest)) {
             attributes.push(a);
             rest = tail;
-        } else if let Ok((tail, cmd)) = parse_id
-            .preceded_by(tuple((
-                tag_no_case("handle"),
-                whitespace1,
-                tag_no_case("command"),
-                whitespace1,
-            )))
-            .terminated(tuple((whitespace0, tag(";"))))
-            .parse(rest)
-        {
+        } else if let Ok((tail, cmd)) = deepest_error.intercept(
+            parse_id
+                .preceded_by(tuple((
+                    tag_no_case("handle"),
+                    whitespace1,
+                    tag_no_case("command"),
+                    whitespace1,
+                )))
+                .terminated(tuple((whitespace0, tag(";"))))
+                .parse(rest),
+        ) {
             commands.push(cmd);
             rest = tail;
-        } else if let Ok((tail, e)) = parse_id
-            .preceded_by(tuple((
-                tag_no_case("emits"),
-                whitespace1,
-                tag_no_case("event"),
-                whitespace1,
-            )))
-            .terminated(tuple((whitespace0, tag(";"))))
-            .parse(rest)
-        {
+        } else if let Ok((tail, e)) = deepest_error.intercept(
+            parse_id
+                .preceded_by(tuple((
+                    tag_no_case("emits"),
+                    whitespace1,
+                    tag_no_case("event"),
+                    whitespace1,
+                )))
+                .terminated(tuple((whitespace0, tag(";"))))
+                .parse(rest),
+        ) {
             events.push(e);
             rest = tail;
         } else {
@@ -1347,16 +1412,24 @@ pub fn cluster_instantiation(span: Span) -> IResult<Span, ClusterInstantiation<'
         }
         span = rest;
     }
-    value(
-        ClusterInstantiation {
-            name,
-            attributes,
-            commands,
-            events,
-        },
-        tuple((whitespace0, tag("}"))),
-    )
-    .parse(span)
+
+    let result = deepest_error.intercept(
+        value(
+            ClusterInstantiation {
+                name,
+                attributes,
+                commands,
+                events,
+            },
+            tuple((whitespace0, tag("}"))),
+        )
+        .parse(span),
+    );
+
+    match result {
+        Ok(_) => result,
+        Err(e) => Err(deepest_error.or(e)),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
@@ -1377,27 +1450,30 @@ pub fn endpoint(span: Span) -> IResult<Span, Endpoint<'_>, ParseError> {
     let mut instantiations = Vec::new();
     let mut bindings = Vec::new();
 
+    let mut deepest_error = DeepestError::new();
+
     loop {
         // eat any whitespace, then try to parse some content
         let (rest, _) = whitespace0.parse(span)?;
 
-        if let Ok((tail, dt)) = device_type.parse(rest) {
+        if let Ok((tail, dt)) = deepest_error.intercept(device_type.parse(rest)) {
             device_types.push(dt);
             span = tail;
-        } else if let Ok((tail, b)) = parse_id
-            .preceded_by(tuple((
-                whitespace0,
-                tag_no_case("binding"),
-                whitespace1,
-                tag_no_case("cluster"),
-                whitespace1,
-            )))
-            .terminated(tuple((whitespace0, tag(";"))))
-            .parse(rest)
-        {
+        } else if let Ok((tail, b)) = deepest_error.intercept(
+            parse_id
+                .preceded_by(tuple((
+                    whitespace0,
+                    tag_no_case("binding"),
+                    whitespace1,
+                    tag_no_case("cluster"),
+                    whitespace1,
+                )))
+                .terminated(tuple((whitespace0, tag(";"))))
+                .parse(rest),
+        ) {
             bindings.push(b);
             span = tail;
-        } else if let Ok((tail, ci)) = cluster_instantiation(rest) {
+        } else if let Ok((tail, ci)) = deepest_error.intercept(cluster_instantiation(rest)) {
             instantiations.push(ci);
             span = tail;
         } else {
@@ -1406,7 +1482,7 @@ pub fn endpoint(span: Span) -> IResult<Span, Endpoint<'_>, ParseError> {
         }
     }
 
-    value(
+    match value(
         Endpoint {
             id,
             device_types,
@@ -1416,6 +1492,10 @@ pub fn endpoint(span: Span) -> IResult<Span, Endpoint<'_>, ParseError> {
         tuple((whitespace0, tag("}"))),
     )
     .parse(span)
+    {
+        Ok(x) => Ok(x),
+        Err(e) => Err(deepest_error.or(e)),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
@@ -1447,30 +1527,15 @@ pub struct IdlParsingError {
 
 impl IdlParsingError {
     fn from<'a>(input: Span<'a>, span: Span<'a>, error: nom::Err<ParseError<'a>>) -> Self {
-        // the span represents where cluster parsing failed
-        let error = match error {
-            nom::Err::Error(e) => e,
-            nom::Err::Failure(e) => e,
-            nom::Err::Incomplete(_) => {
-                return IdlParsingError {
-                    src: NamedSource::new("input idl", input.fragment().to_string()),
-                    error_location: (input.len() - span.len(), 1).into(),
-                }
-            }
+        let pos = match error.depest_index() {
+            None => input.len() - span.len(),
+            Some(error_pos) => error_pos,
         };
-        let min_pos = error
-            .errors
-            .iter()
-            .map(|(p, _k)| p.fragment().len())
-            .min()
-            .unwrap_or(input.len());
 
-        let err_pos = input.len() - min_pos;
-
-        return IdlParsingError {
+        IdlParsingError {
             src: NamedSource::new("input idl", input.fragment().to_string()),
-            error_location: (err_pos, 1).into(),
-        };
+            error_location: (pos, 1).into(),
+        }
     }
 }
 

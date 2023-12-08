@@ -1332,6 +1332,10 @@ pub struct AttributeInstantiation<'a> {
 }
 
 pub fn attribute_instantiation(span: Span) -> IResult<Span, AttributeInstantiation, ParseError> {
+    // TODO: if opt fails here, error reporting does not recurse deep inside the optional
+    //       since it is optional and the "terminated" will refuse
+    // May need to figure out how to detect the farthest we ever parsed, maybe using span itself
+    // as an overload.
     tuple((
         attribute_handling_type,
         parse_id.preceded_by(tuple((whitespace1, tag_no_case("attribute"), whitespace1))),

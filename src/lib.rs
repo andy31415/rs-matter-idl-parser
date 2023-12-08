@@ -1231,32 +1231,38 @@ pub enum DefaultAttributeValue {
 ///
 /// Does NOT consume leading spaces or spaces after the value
 pub fn default_attribute_value(span: Span) -> IResult<Span, DefaultAttributeValue, ParseError> {
-    // make sure we have some default before trying to parse
-    let (span, _) =
-        tuple((tag_no_case("default"), whitespace0, tag("="), whitespace0)).parse(span)?;
+    let mut deepest_error = DeepestError::new();
 
-    if let Ok((rest, n)) = positive_integer.parse(span) {
+    // make sure we have some default before trying to parse
+    let (span, _) = deepest_error.intercept(
+        tuple((tag_no_case("default"), whitespace0, tag("="), whitespace0)).parse(span),
+    )?;
+
+    if let Ok((rest, n)) = deepest_error.intercept(positive_integer.parse(span)) {
         // TODO: bitwise compare here may be rough
         return Ok((rest, DefaultAttributeValue::Number(n)));
     }
 
     // at this point there is a default.
-    if let Ok((rest, n)) = nom::character::complete::i64::<_, ()>.parse(span) {
+    if let Ok((rest, n)) = deepest_error.intercept(nom::character::complete::i64.parse(span)) {
         return Ok((rest, DefaultAttributeValue::Signed(n)));
     }
 
-    if let Ok((rest, _)) = tag_no_case::<_, _, ()>("true").parse(span) {
+    if let Ok((rest, _)) = deepest_error.intercept(tag_no_case("true").parse(span)) {
         return Ok((rest, DefaultAttributeValue::Bool(true)));
     }
 
-    if let Ok((rest, _)) = tag_no_case::<_, _, ()>("false").parse(span) {
+    if let Ok((rest, _)) = deepest_error.intercept(tag_no_case("false").parse(span)) {
         return Ok((rest, DefaultAttributeValue::Bool(false)));
     }
 
     // remove prefix and parse
     // This lengthy unescape logic is because I could not get
     // nom escape/escape_transform to work
-    let (mut span, _) = tag("\"").parse(span)?;
+    let (mut span, _) = match tag("\"").parse(span) {
+        Ok(x) => x,
+        Err(e) => return Err(deepest_error.or(e)),
+    };
     let mut result = String::new();
 
     loop {
@@ -1368,12 +1374,6 @@ pub fn cluster_instantiation(span: Span) -> IResult<Span, ClusterInstantiation<'
 
     loop {
         let (mut rest, _) = whitespace0.parse(span)?;
-
-        // TODO: capture the error and return if failure to parse {
-        //       to get better error positioning
-        //
-        // Ideally we would capture the "deepest error"
-        // and return that on final failure.
 
         if let Ok((tail, a)) = deepest_error.intercept(attribute_instantiation(rest)) {
             attributes.push(a);

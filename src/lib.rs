@@ -168,13 +168,15 @@ pub enum Whitespace<'a> {
 /// returns the content of the comment
 pub fn whitespace_group(span: Span) -> IResult<Span, Whitespace<'_>, ParseError> {
     // NOTE: split into cases intentional. Using an ALT pattern here
-    //       seems to slow down things a lot.
+    //       seems to slow down things quite a bit (as whitespace is used a lot
+    //       inside our parsing)
 
-    // C-style comment, output thrown away
+    // C-style comment,
     if let Ok((span, c)) = preceded(tag::<_, _, ()>("//"), is_not("\n\r")).parse(span) {
         return Ok((span, Whitespace::CComment(c.fragment())));
     }
 
+    // CPP-comment. May be a doc-comment if starting with '/**'
     if let Ok((span, cpp)) =
         delimited(tag::<_, _, ()>("/*"), take_until("*/"), tag("*/")).parse(span)
     {
@@ -188,6 +190,7 @@ pub fn whitespace_group(span: Span) -> IResult<Span, Whitespace<'_>, ParseError>
         ));
     }
 
+    // finally just a set of spaces, must be at least 1
     multispace1
         .map(|c: Span| Whitespace::Whitespace(c.fragment()))
         .parse(span)

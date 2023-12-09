@@ -3,6 +3,8 @@ use std::fs;
 use clap::Parser;
 use rs_matter_idl_parser::Idl;
 
+use tracing_subscriber::{filter, prelude::*};
+
 // Simple program parsing a IDL file
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -13,10 +15,18 @@ struct Args {
     /// How many time to parse this file
     #[arg(short, long, value_name = "CNT")]
     repeat_count: Option<u32>,
+
+    #[arg(short, long)]
+    log_level: Option<filter::LevelFilter>,
 }
 
 fn main() -> miette::Result<()> {
+    let stdout_log = tracing_subscriber::fmt::layer().pretty();
     let args = Args::parse();
+
+    tracing_subscriber::registry()
+        .with(stdout_log.with_filter(args.log_level.unwrap_or(filter::LevelFilter::ERROR)))
+        .init();
 
     let contents = fs::read_to_string(args.name).expect("Valid input file");
 

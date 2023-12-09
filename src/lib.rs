@@ -15,6 +15,7 @@ use nom_greedyerror::GreedyError;
 use nom_locate::LocatedSpan;
 use nom_supreme::ParserExt;
 use thiserror::Error;
+use tracing::warn;
 
 // easier to type and not move str around
 type Span<'a> = LocatedSpan<&'a str>;
@@ -1535,6 +1536,8 @@ impl IdlParsingError {
             None => input.len() - span.len(),
             Some(error_pos) => error_pos,
         };
+
+        warn!("IDL parse error: {:?}", error);
 
         IdlParsingError {
             src: NamedSource::new("input idl", input.fragment().to_string()),

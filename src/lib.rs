@@ -1519,7 +1519,7 @@ enum InternalIdlParsedData<'a> {
 #[error("Failed to parse IDL.")]
 #[diagnostic(
     code("matter::idl::parse::failure"),
-    help("Likely an invalid input format")
+    help("Failed to parse IDL. Check IDL format")
 )]
 pub struct IdlParsingError {
     #[source_code]

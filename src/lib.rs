@@ -21,6 +21,64 @@ type Span<'a> = LocatedSpan<&'a str>;
 //type ParseError<'a> = VerboseError<Span<'a>>;
 type ParseError<'a> = GreedyError<Span<'a>, ErrorKind>;
 
+/// Fetch the deepest location of an error within an error type
+pub trait DeepestIndex {
+    fn depest_index(&self) -> Option<usize>;
+}
+
+impl<E> DeepestIndex for nom::Err<E>
+where
+    E: DeepestIndex,
+{
+    fn depest_index(&self) -> Option<usize> {
+        match self {
+            nom::Err::Error(e) => e.depest_index(),
+            nom::Err::Failure(e) => e.depest_index(),
+            nom::Err::Incomplete(_) => None,
+        }
+    }
+}
+
+impl<'a> DeepestIndex for GreedyError<Span<'a>, ErrorKind> {
+    fn depest_index(&self) -> Option<usize> {
+        self.errors.iter().map(|(p, _k)| p.location_offset()).max()
+    }
+}
+
+/// Keep track of the deepest error encoutered
+#[derive(Debug, PartialEq, Clone)]
+struct DeepestError<E> {
+    deepest: Option<(usize, E)>,
+}
+
+impl<E> DeepestError<E>
+where
+    E: DeepestIndex + Clone + std::fmt::Debug,
+{
+    pub fn new() -> Self {
+        Self { deepest: None }
+    }
+
+    pub fn or(self, e: E) -> E {
+        match self.deepest {
+            Some((_, myerror)) => myerror,
+            None => e,
+        }
+    }
+
+    pub fn intercept<O>(&mut self, data: Result<O, E>) -> Result<O, E> {
+        if let Err(ref e) = data {
+            if let Some(depth) = e.depest_index() {
+                let current_depth = self.deepest.as_ref().map(|(d, _)| *d).unwrap_or(0);
+                if current_depth < depth {
+                    self.deepest = Some((depth, e.clone()));
+                }
+            };
+        }
+        data
+    }
+}
+
 /// How mature/usable a member of an API is
 ///
 /// Most things should be stable, however while spec is developed
@@ -1176,32 +1234,38 @@ pub enum DefaultAttributeValue {
 ///
 /// Does NOT consume leading spaces or spaces after the value
 pub fn default_attribute_value(span: Span) -> IResult<Span, DefaultAttributeValue, ParseError> {
-    // make sure we have some default before trying to parse
-    let (span, _) =
-        tuple((tag_no_case("default"), whitespace0, tag("="), whitespace0)).parse(span)?;
+    let mut deepest_error = DeepestError::new();
 
-    if let Ok((rest, n)) = positive_integer.parse(span) {
+    // make sure we have some default before trying to parse
+    let (span, _) = deepest_error.intercept(
+        tuple((tag_no_case("default"), whitespace0, tag("="), whitespace0)).parse(span),
+    )?;
+
+    if let Ok((rest, n)) = deepest_error.intercept(positive_integer.parse(span)) {
         // TODO: bitwise compare here may be rough
         return Ok((rest, DefaultAttributeValue::Number(n)));
     }
 
     // at this point there is a default.
-    if let Ok((rest, n)) = nom::character::complete::i64::<_, ()>.parse(span) {
+    if let Ok((rest, n)) = deepest_error.intercept(nom::character::complete::i64.parse(span)) {
         return Ok((rest, DefaultAttributeValue::Signed(n)));
     }
 
-    if let Ok((rest, _)) = tag_no_case::<_, _, ()>("true").parse(span) {
+    if let Ok((rest, _)) = deepest_error.intercept(tag_no_case("true").parse(span)) {
         return Ok((rest, DefaultAttributeValue::Bool(true)));
     }
 
-    if let Ok((rest, _)) = tag_no_case::<_, _, ()>("false").parse(span) {
+    if let Ok((rest, _)) = deepest_error.intercept(tag_no_case("false").parse(span)) {
         return Ok((rest, DefaultAttributeValue::Bool(false)));
     }
 
     // remove prefix and parse
     // This lengthy unescape logic is because I could not get
     // nom escape/escape_transform to work
-    let (mut span, _) = tag("\"").parse(span)?;
+    let (mut span, _) = match tag("\"").parse(span) {
+        Ok(x) => x,
+        Err(e) => return Err(deepest_error.or(e)),
+    };
     let mut result = String::new();
 
     loop {
@@ -1271,6 +1335,10 @@ pub struct AttributeInstantiation<'a> {
 }
 
 pub fn attribute_instantiation(span: Span) -> IResult<Span, AttributeInstantiation, ParseError> {
+    // TODO: if opt fails here, error reporting does not recurse deep inside the optional
+    //       since it is optional and the "terminated" will refuse
+    // May need to figure out how to detect the farthest we ever parsed, maybe using span itself
+    // as an overload.
     tuple((
         attribute_handling_type,
         parse_id.preceded_by(tuple((whitespace1, tag_no_case("attribute"), whitespace1))),
@@ -1309,40 +1377,38 @@ pub fn cluster_instantiation(span: Span) -> IResult<Span, ClusterInstantiation<'
     let mut commands = Vec::new();
     let mut events = Vec::new();
 
+    let mut deepest_error = DeepestError::new();
+
     loop {
         let (mut rest, _) = whitespace0.parse(span)?;
-        
-        // TODO: capture the error and return if failure to parse {
-        //       to get better error positioning
-        //
-        // Ideally we would capture the "deepest error"
-        // and return that on final failure.
 
-        if let Ok((tail, a)) = attribute_instantiation(rest) {
+        if let Ok((tail, a)) = deepest_error.intercept(attribute_instantiation(rest)) {
             attributes.push(a);
             rest = tail;
-        } else if let Ok((tail, cmd)) = parse_id
-            .preceded_by(tuple((
-                tag_no_case("handle"),
-                whitespace1,
-                tag_no_case("command"),
-                whitespace1,
-            )))
-            .terminated(tuple((whitespace0, tag(";"))))
-            .parse(rest)
-        {
+        } else if let Ok((tail, cmd)) = deepest_error.intercept(
+            parse_id
+                .preceded_by(tuple((
+                    tag_no_case("handle"),
+                    whitespace1,
+                    tag_no_case("command"),
+                    whitespace1,
+                )))
+                .terminated(tuple((whitespace0, tag(";"))))
+                .parse(rest),
+        ) {
             commands.push(cmd);
             rest = tail;
-        } else if let Ok((tail, e)) = parse_id
-            .preceded_by(tuple((
-                tag_no_case("emits"),
-                whitespace1,
-                tag_no_case("event"),
-                whitespace1,
-            )))
-            .terminated(tuple((whitespace0, tag(";"))))
-            .parse(rest)
-        {
+        } else if let Ok((tail, e)) = deepest_error.intercept(
+            parse_id
+                .preceded_by(tuple((
+                    tag_no_case("emits"),
+                    whitespace1,
+                    tag_no_case("event"),
+                    whitespace1,
+                )))
+                .terminated(tuple((whitespace0, tag(";"))))
+                .parse(rest),
+        ) {
             events.push(e);
             rest = tail;
         } else {
@@ -1350,16 +1416,24 @@ pub fn cluster_instantiation(span: Span) -> IResult<Span, ClusterInstantiation<'
         }
         span = rest;
     }
-    value(
-        ClusterInstantiation {
-            name,
-            attributes,
-            commands,
-            events,
-        },
-        tuple((whitespace0, tag("}"))),
-    )
-    .parse(span)
+
+    let result = deepest_error.intercept(
+        value(
+            ClusterInstantiation {
+                name,
+                attributes,
+                commands,
+                events,
+            },
+            tuple((whitespace0, tag("}"))),
+        )
+        .parse(span),
+    );
+
+    match result {
+        Ok(_) => result,
+        Err(e) => Err(deepest_error.or(e)),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
@@ -1380,27 +1454,30 @@ pub fn endpoint(span: Span) -> IResult<Span, Endpoint<'_>, ParseError> {
     let mut instantiations = Vec::new();
     let mut bindings = Vec::new();
 
+    let mut deepest_error = DeepestError::new();
+
     loop {
         // eat any whitespace, then try to parse some content
         let (rest, _) = whitespace0.parse(span)?;
 
-        if let Ok((tail, dt)) = device_type.parse(rest) {
+        if let Ok((tail, dt)) = deepest_error.intercept(device_type.parse(rest)) {
             device_types.push(dt);
             span = tail;
-        } else if let Ok((tail, b)) = parse_id
-            .preceded_by(tuple((
-                whitespace0,
-                tag_no_case("binding"),
-                whitespace1,
-                tag_no_case("cluster"),
-                whitespace1,
-            )))
-            .terminated(tuple((whitespace0, tag(";"))))
-            .parse(rest)
-        {
+        } else if let Ok((tail, b)) = deepest_error.intercept(
+            parse_id
+                .preceded_by(tuple((
+                    whitespace0,
+                    tag_no_case("binding"),
+                    whitespace1,
+                    tag_no_case("cluster"),
+                    whitespace1,
+                )))
+                .terminated(tuple((whitespace0, tag(";"))))
+                .parse(rest),
+        ) {
             bindings.push(b);
             span = tail;
-        } else if let Ok((tail, ci)) = cluster_instantiation(rest) {
+        } else if let Ok((tail, ci)) = deepest_error.intercept(cluster_instantiation(rest)) {
             instantiations.push(ci);
             span = tail;
         } else {
@@ -1409,7 +1486,7 @@ pub fn endpoint(span: Span) -> IResult<Span, Endpoint<'_>, ParseError> {
         }
     }
 
-    value(
+    match value(
         Endpoint {
             id,
             device_types,
@@ -1419,6 +1496,10 @@ pub fn endpoint(span: Span) -> IResult<Span, Endpoint<'_>, ParseError> {
         tuple((whitespace0, tag("}"))),
     )
     .parse(span)
+    {
+        Ok(x) => Ok(x),
+        Err(e) => Err(deepest_error.or(e)),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
@@ -1450,30 +1531,15 @@ pub struct IdlParsingError {
 
 impl IdlParsingError {
     fn from<'a>(input: Span<'a>, span: Span<'a>, error: nom::Err<ParseError<'a>>) -> Self {
-        // the span represents where cluster parsing failed
-        let error = match error {
-            nom::Err::Error(e) => e,
-            nom::Err::Failure(e) => e,
-            nom::Err::Incomplete(_) => {
-                return IdlParsingError {
-                    src: NamedSource::new("input idl", input.fragment().to_string()),
-                    error_location: (input.len() - span.len(), 1).into(),
-                }
-            }
+        let pos = match error.depest_index() {
+            None => input.len() - span.len(),
+            Some(error_pos) => error_pos,
         };
-        let min_pos = error
-            .errors
-            .iter()
-            .map(|(p, _k)| p.fragment().len())
-            .min()
-            .unwrap_or(input.len());
 
-        let err_pos = input.len() - min_pos;
-
-        return IdlParsingError {
+        IdlParsingError {
             src: NamedSource::new("input idl", input.fragment().to_string()),
-            error_location: (err_pos, 1).into(),
-        };
+            error_location: (pos, 1).into(),
+        }
     }
 }
 
@@ -1658,10 +1724,22 @@ mod tests {
           internal cluster MyTestCluster = 0x123 {
              revision 22; // just for testing
 
+             info event StateChanged = 0 {
+               int16u actionID = 0;
+             }
+
+             bitmap Feature : bitmap32 {
+               kCalendarFormat = 0x1;
+             }
+
              enum ApplyUpdateActionEnum : enum8 {
                kProceed = 0;
                kAwaitNextAction = 1;
                kDiscontinue = 2;
+             }
+
+             response struct CommissioningCompleteResponse = 5 {
+               char_string debugText = 1;
              }
 
              readonly attribute attrib_id attributeList[] = 65531;
@@ -1704,6 +1782,44 @@ mod tests {
                     code: 4,
                     is_fabric_scoped: true,
                     ..Default::default()
+            }],
+            structs: vec![
+                Struct {
+                    doc_comment: None,
+                    maturity: ApiMaturity::STABLE,
+                    struct_type: StructType::Response(5),
+                    id: "CommissioningCompleteResponse",
+                    fields: vec![StructField {
+                        field: Field {
+                            data_type: DataType::scalar("char_string"),
+                            id: "debugText",
+                            code: 1
+                        },
+                        ..Default::default()
+                    }],
+                    is_fabric_scoped: false,
+                }
+            ],
+            bitmaps: vec![Bitmap {
+                doc_comment: None,
+                maturity: ApiMaturity::STABLE,
+                id: "Feature",
+                base_type: "bitmap32",
+                entries: vec![ConstantEntry { maturity: ApiMaturity::STABLE, id: "kCalendarFormat", code: 1 }] }],
+            events: vec![Event {
+                doc_comment: None,
+                maturity: ApiMaturity::STABLE,
+                priority: EventPriority::Info,
+                access: AccessPrivilege::View,
+                id: "StateChanged",
+                code: 0,
+                fields: vec![
+                    StructField {
+                        field: Field { data_type: DataType::scalar("int16u") , id: "actionID", code: 0 },
+                        ..Default::default()
+                    }
+                ],
+                is_fabric_sensitive: false,
             }],
             ..Default::default()
         });

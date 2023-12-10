@@ -3,7 +3,8 @@ use std::fs;
 use clap::Parser;
 use rs_matter_idl_parser::Idl;
 
-use tracing_subscriber::{filter, prelude::*};
+use tracing::level_filters::LevelFilter;
+use tracing_subscriber::prelude::*;
 
 // Simple program parsing a IDL file
 #[derive(Parser, Debug)]
@@ -17,7 +18,7 @@ struct Args {
     repeat_count: Option<u32>,
 
     #[arg(short, long)]
-    log_level: Option<filter::LevelFilter>,
+    log_level: Option<LevelFilter>,
 }
 
 fn main() -> miette::Result<()> {
@@ -25,7 +26,7 @@ fn main() -> miette::Result<()> {
     let args = Args::parse();
 
     tracing_subscriber::registry()
-        .with(stdout_log.with_filter(args.log_level.unwrap_or(filter::LevelFilter::ERROR)))
+        .with(stdout_log.with_filter(args.log_level.unwrap_or(args.log_level.unwrap_or(LevelFilter::ERROR))))
         .init();
 
     let contents = fs::read_to_string(args.name).expect("Valid input file");
